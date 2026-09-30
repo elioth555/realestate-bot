@@ -1,8 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { AmenityKey, DealType, Listing, Source } from './listings'
 
-// The photos table in the connected database is spelled "proprety_photos"; "property_photos" does not exist.
-const PHOTOS_TABLE = 'proprety_photos'
+const PHOTOS_TABLE = 'property_photos'
 const MAX_ROWS = 1000
 
 type PropertyRow = {
@@ -36,9 +35,33 @@ type PropertyRow = {
 }
 
 type PhotoRow = {
+  id: string | number
   property_id: string | number
   photo_url: string | null
-  position: number | null
+  position: number | string | null
+}
+
+function groupPhotosByProperty(rows: PhotoRow[]) {
+  const grouped = new Map<string, PhotoRow[]>()
+  for (const row of rows) {
+    if (!row.photo_url || row.property_id === null || row.property_id === undefined) continue
+    const key = String(row.property_id)
+    const list = grouped.get(key) ?? []
+    list.push(row)
+    grouped.set(key, list)
+  }
+  const result = new Map<string, string[]>()
+  for (const [key, list] of grouped) {
+    list.sort(
+      (a, b) =>
+        (toNumber(a.position) ?? Number.MAX_SAFE_INTEGER) - (toNumber(b.position) ?? Number.MAX_SAFE_INTEGER),
+    )
+    result.set(
+      key,
+      list.map((p) => p.photo_url as string),
+    )
+  }
+  return result
 }
 
 const AMENITY_COLUMNS: [AmenityKey, keyof PropertyRow][] = [
@@ -112,7 +135,7 @@ function describeError(error: { message: string; code?: string }) {
   if (error.code === '42501') {
     return new SupabaseLoadError(
       'Supabase denied read access to the listings.',
-      'Grant SELECT to the anon role and add a read policy on "properties" and "proprety_photos".',
+      'Grant SELECT to the anon role and add a read policy on "properties" and "property_photos".',
     )
   }
   return new SupabaseLoadError(`Could not load listings from Supabase: ${error.message}`)
@@ -127,21 +150,16 @@ export async function fetchListings(): Promise<Listing[]> {
       .select('*')
       .order('published_at', { ascending: false, nullsFirst: false })
       .limit(MAX_ROWS),
-    supabase
-      .from(PHOTOS_TABLE)
-      .select('property_id, photo_url, position')
-      .order('position', { ascending: true })
-      .limit(MAX_ROWS * 10),
+    supabase.from(PHOTOS_TABLE).select('id, property_id, photo_url, position').limit(MAX_ROWS * 10),
   ])
 
   if (propertiesRes.error) throw describeError(propertiesRes.error)
-  if (photosRes.error) throw describeError(photosRes.error)
 
-  const firstPhoto = new Map<string, string>()
-  for (const photo of (photosRes.data ?? []) as PhotoRow[]) {
-    const key = String(photo.property_id)
-    if (photo.photo_url && !firstPhoto.has(key)) firstPhoto.set(key, photo.photo_url)
+  // Photos are non-critical: a failed photo query should still render the properties.
+  if (photosRes.error) {
+    console.warn(`Could not load ${PHOTOS_TABLE}; showing properties without photos.`, photosRes.error.message)
   }
+  const photosByProperty = groupPhotosByProperty(photosRes.error ? [] : ((photosRes.data ?? []) as PhotoRow[]))
 
   return ((propertiesRes.data ?? []) as PropertyRow[]).map((row) => {
     const id = String(row.id)
@@ -162,7 +180,8 @@ export async function fetchListings(): Promise<Listing[]> {
       source: normalizeSource(row.source),
       url: row.source_url ?? '',
       publishedMinutesAgo: minutesSince(row.published_at, row.created_at),
-      image: firstPhoto.get(id) ?? null,
+      photos: photosByProperty.get(id) ?? [],
+      image: photosByProperty.get(id)?.[0] ?? null,
     }
   })
 }

@@ -55,6 +55,7 @@ export type Listing = {
   source: Source
   url: string
   publishedMinutesAgo: number
+  photos: string[]
   image: string | null
 }
 
