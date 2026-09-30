@@ -1,5 +1,5 @@
 export type DealType = 'rent' | 'sale'
-export type Source = 'facebook' | 'yad2' | 'madlan'
+export type Source = 'facebook' | 'yad2' | 'madlan' | 'other'
 
 export const AMENITY_KEYS = [
   'parking',
@@ -31,34 +31,16 @@ export const AMENITY_LABELS: Record<AmenityKey, string> = {
   petFriendly: 'Pet friendly',
 }
 
-export const PROPERTY_TYPES = [
-  'Apartment',
-  'Garden apartment',
-  'Penthouse',
-  'Duplex',
-  'Studio',
-  'Private house',
-] as const
-
-export type PropertyType = (typeof PROPERTY_TYPES)[number]
-
-export const CITIES: Record<string, string[]> = {
-  'Tel Aviv': ['Florentin', 'Old North', 'Neve Tzedek', 'Lev HaIr', 'Ramat Aviv', 'Kerem HaTeimanim'],
-  Jerusalem: ['Rehavia', 'German Colony', 'Baka', 'Katamon', 'Nachlaot'],
-  Haifa: ['Carmel Center', 'German Colony', 'Ahuza', 'Bat Galim'],
-  Herzliya: ['Herzliya Pituach', 'Neve Amal', 'Green Herzliya'],
-  'Ramat Gan': ['Bursa', 'Merkaz HaIr', 'Tel Binyamin'],
-  Netanya: ['Ir Yamim', 'Kiryat HaSharon', 'Nordau'],
-}
-
 export const SOURCE_LABELS: Record<Source, string> = {
   facebook: 'Facebook',
   yad2: 'Yad2',
   madlan: 'Madlan',
+  other: 'Other',
 }
 
 export type Listing = {
   id: string
+  title: string
   dealType: DealType
   price: number
   city: string
@@ -66,244 +48,31 @@ export type Listing = {
   street: string
   rooms: number
   surface: number
-  floor: number
-  totalFloors: number
-  propertyType: PropertyType
+  floor: number | null
+  propertyType: string
   amenities: AmenityKey[]
   phone: string
   source: Source
   url: string
   publishedMinutesAgo: number
-  image: string
+  image: string | null
 }
 
-export const LISTINGS: Listing[] = [
-  {
-    id: 'l-1001',
-    dealType: 'rent',
-    price: 8900,
-    city: 'Tel Aviv',
-    neighborhood: 'Old North',
-    street: 'Dizengoff St 212',
-    rooms: 3,
-    surface: 78,
-    floor: 3,
-    totalFloors: 5,
-    propertyType: 'Apartment',
-    amenities: ['balcony', 'elevator', 'mamad', 'furnished'],
-    phone: '054-318-2270',
-    source: 'yad2',
-    url: 'https://www.yad2.co.il/realestate/item/l-1001',
-    publishedMinutesAgo: 12,
-    image: '/listings/apt-1.png',
-  },
-  {
-    id: 'l-1002',
-    dealType: 'sale',
-    price: 7450000,
-    city: 'Tel Aviv',
-    neighborhood: 'Neve Tzedek',
-    street: 'Shabazi St 44',
-    rooms: 5,
-    surface: 165,
-    floor: 6,
-    totalFloors: 6,
-    propertyType: 'Penthouse',
-    amenities: ['terrace', 'seaView', 'parking', 'elevator', 'mamad', 'pool'],
-    phone: '052-744-1093',
-    source: 'madlan',
-    url: 'https://www.madlan.co.il/listings/l-1002',
-    publishedMinutesAgo: 47,
-    image: '/listings/apt-2.png',
-  },
-  {
-    id: 'l-1003',
-    dealType: 'rent',
-    price: 6200,
-    city: 'Tel Aviv',
-    neighborhood: 'Florentin',
-    street: 'Vital St 9',
-    rooms: 2,
-    surface: 55,
-    floor: 2,
-    totalFloors: 4,
-    propertyType: 'Apartment',
-    amenities: ['balcony', 'petFriendly', 'furnished'],
-    phone: '050-221-8864',
-    source: 'facebook',
-    url: 'https://www.facebook.com/groups/telavivrentals/posts/l-1003',
-    publishedMinutesAgo: 95,
-    image: '/listings/apt-3.png',
-  },
-  {
-    id: 'l-1004',
-    dealType: 'sale',
-    price: 4250000,
-    city: 'Jerusalem',
-    neighborhood: 'Rehavia',
-    street: 'Ramban St 18',
-    rooms: 4,
-    surface: 112,
-    floor: 1,
-    totalFloors: 4,
-    propertyType: 'Apartment',
-    amenities: ['balcony', 'mamad', 'parking'],
-    phone: '053-602-4418',
-    source: 'yad2',
-    url: 'https://www.yad2.co.il/realestate/item/l-1004',
-    publishedMinutesAgo: 180,
-    image: '/listings/apt-4.png',
-  },
-  {
-    id: 'l-1005',
-    dealType: 'rent',
-    price: 11500,
-    city: 'Herzliya',
-    neighborhood: 'Herzliya Pituach',
-    street: 'Galgalei HaPlada St 7',
-    rooms: 4,
-    surface: 130,
-    floor: 0,
-    totalFloors: 3,
-    propertyType: 'Garden apartment',
-    amenities: ['garden', 'parking', 'mamad', 'petFriendly', 'pool'],
-    phone: '054-990-3312',
-    source: 'madlan',
-    url: 'https://www.madlan.co.il/listings/l-1005',
-    publishedMinutesAgo: 260,
-    image: '/listings/apt-5.png',
-  },
-  {
-    id: 'l-1006',
-    dealType: 'rent',
-    price: 4800,
-    city: 'Ramat Gan',
-    neighborhood: 'Merkaz HaIr',
-    street: 'Bialik St 61',
-    rooms: 1.5,
-    surface: 38,
-    floor: 4,
-    totalFloors: 7,
-    propertyType: 'Studio',
-    amenities: ['elevator', 'furnished', 'gym'],
-    phone: '058-417-2205',
-    source: 'facebook',
-    url: 'https://www.facebook.com/groups/ramatganrent/posts/l-1006',
-    publishedMinutesAgo: 340,
-    image: '/listings/apt-6.png',
-  },
-  {
-    id: 'l-1007',
-    dealType: 'sale',
-    price: 3150000,
-    city: 'Haifa',
-    neighborhood: 'Carmel Center',
-    street: 'HaNassi Blvd 104',
-    rooms: 4.5,
-    surface: 124,
-    floor: 8,
-    totalFloors: 12,
-    propertyType: 'Apartment',
-    amenities: ['seaView', 'elevator', 'parking', 'mamad', 'balcony'],
-    phone: '052-338-7719',
-    source: 'yad2',
-    url: 'https://www.yad2.co.il/realestate/item/l-1007',
-    publishedMinutesAgo: 520,
-    image: '/listings/apt-1.png',
-  },
-  {
-    id: 'l-1008',
-    dealType: 'sale',
-    price: 5890000,
-    city: 'Netanya',
-    neighborhood: 'Ir Yamim',
-    street: 'Ben Gurion Blvd 30',
-    rooms: 5,
-    surface: 148,
-    floor: 14,
-    totalFloors: 18,
-    propertyType: 'Duplex',
-    amenities: ['seaView', 'terrace', 'pool', 'gym', 'parking', 'elevator', 'mamad'],
-    phone: '050-876-5541',
-    source: 'madlan',
-    url: 'https://www.madlan.co.il/listings/l-1008',
-    publishedMinutesAgo: 780,
-    image: '/listings/apt-2.png',
-  },
-  {
-    id: 'l-1009',
-    dealType: 'rent',
-    price: 7300,
-    city: 'Jerusalem',
-    neighborhood: 'German Colony',
-    street: 'Emek Refaim St 25',
-    rooms: 3.5,
-    surface: 92,
-    floor: 2,
-    totalFloors: 3,
-    propertyType: 'Apartment',
-    amenities: ['balcony', 'garden', 'petFriendly'],
-    phone: '054-203-6690',
-    source: 'facebook',
-    url: 'https://www.facebook.com/groups/jerusalemrentals/posts/l-1009',
-    publishedMinutesAgo: 1100,
-    image: '/listings/apt-5.png',
-  },
-  {
-    id: 'l-1010',
-    dealType: 'rent',
-    price: 9800,
-    city: 'Tel Aviv',
-    neighborhood: 'Ramat Aviv',
-    street: 'Einstein St 40',
-    rooms: 4,
-    surface: 105,
-    floor: 5,
-    totalFloors: 9,
-    propertyType: 'Apartment',
-    amenities: ['parking', 'elevator', 'mamad', 'balcony', 'gym'],
-    phone: '053-771-4028',
-    source: 'yad2',
-    url: 'https://www.yad2.co.il/realestate/item/l-1010',
-    publishedMinutesAgo: 1600,
-    image: '/listings/apt-3.png',
-  },
-  {
-    id: 'l-1011',
-    dealType: 'sale',
-    price: 2690000,
-    city: 'Ramat Gan',
-    neighborhood: 'Tel Binyamin',
-    street: 'Hibat Zion St 12',
-    rooms: 3,
-    surface: 82,
-    floor: 3,
-    totalFloors: 4,
-    propertyType: 'Apartment',
-    amenities: ['balcony', 'parking'],
-    phone: '058-640-1187',
-    source: 'facebook',
-    url: 'https://www.facebook.com/groups/ramatgansale/posts/l-1011',
-    publishedMinutesAgo: 2300,
-    image: '/listings/apt-6.png',
-  },
-  {
-    id: 'l-1012',
-    dealType: 'sale',
-    price: 9200000,
-    city: 'Herzliya',
-    neighborhood: 'Green Herzliya',
-    street: 'HaNarkis St 5',
-    rooms: 6,
-    surface: 240,
-    floor: 0,
-    totalFloors: 2,
-    propertyType: 'Private house',
-    amenities: ['garden', 'pool', 'parking', 'mamad', 'terrace', 'petFriendly'],
-    phone: '052-915-3346',
-    source: 'madlan',
-    url: 'https://www.madlan.co.il/listings/l-1012',
-    publishedMinutesAgo: 3100,
-    image: '/listings/apt-4.png',
-  },
-]
+export function buildCityIndex(listings: Listing[]) {
+  const index = new Map<string, Set<string>>()
+  for (const l of listings) {
+    if (!l.city) continue
+    const set = index.get(l.city) ?? new Set<string>()
+    if (l.neighborhood) set.add(l.neighborhood)
+    index.set(l.city, set)
+  }
+  const sorted: Record<string, string[]> = {}
+  for (const city of [...index.keys()].sort((a, b) => a.localeCompare(b))) {
+    sorted[city] = [...index.get(city)!].sort((a, b) => a.localeCompare(b))
+  }
+  return sorted
+}
+
+export function collectPropertyTypes(listings: Listing[]) {
+  return [...new Set(listings.map((l) => l.propertyType).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+}

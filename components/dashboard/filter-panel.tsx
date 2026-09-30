@@ -6,12 +6,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { AMENITY_KEYS, AMENITY_LABELS, CITIES, PROPERTY_TYPES, type AmenityKey } from '@/lib/listings'
+import { AMENITY_KEYS, AMENITY_LABELS, type AmenityKey } from '@/lib/listings'
 import { ROOM_OPTIONS, type Filters } from '@/lib/filters'
 import { AMENITY_ICONS } from './amenity-icons'
 
 type FilterPanelProps = {
   filters: Filters
+  cities: Record<string, string[]>
+  propertyTypes: string[]
   onChange: (filters: Filters) => void
   onSearch: () => void
   onSave: () => void
@@ -108,10 +110,18 @@ function RangeInputs({
   )
 }
 
-export function FilterPanel({ filters, onChange, onSearch, onSave, onReset }: FilterPanelProps) {
+export function FilterPanel({
+  filters,
+  cities,
+  propertyTypes,
+  onChange,
+  onSearch,
+  onSave,
+  onReset,
+}: FilterPanelProps) {
   const set = <K extends keyof Filters>(key: K, value: Filters[K]) => onChange({ ...filters, [key]: value })
 
-  const neighborhoods = filters.city ? CITIES[filters.city] : []
+  const neighborhoods = filters.city ? (cities[filters.city] ?? []) : []
 
   const toggleAmenity = (key: AmenityKey) =>
     set(
@@ -141,7 +151,7 @@ export function FilterPanel({ filters, onChange, onSearch, onSave, onReset }: Fi
           label="City"
           value={filters.city}
           placeholder="Any city"
-          options={toOptions(Object.keys(CITIES), 'Any city')}
+          options={toOptions(Object.keys(cities), 'Any city')}
           onValueChange={(v) => onChange({ ...filters, city: v, neighborhood: null })}
         />
         <FieldSelect
@@ -158,7 +168,7 @@ export function FilterPanel({ filters, onChange, onSearch, onSave, onReset }: Fi
           label="Property type"
           value={filters.propertyType}
           placeholder="Any type"
-          options={toOptions(PROPERTY_TYPES, 'Any type')}
+          options={toOptions(propertyTypes, 'Any type')}
           onValueChange={(v) => set('propertyType', v)}
         />
       </div>

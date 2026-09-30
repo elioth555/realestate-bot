@@ -18,14 +18,14 @@ type ListingCardProps = {
 export function ListingCard({ listing, isFavorite, onToggleFavorite }: ListingCardProps) {
   const visibleAmenities = listing.amenities.slice(0, MAX_AMENITIES)
   const hiddenCount = listing.amenities.length - visibleAmenities.length
-  const floorLabel = listing.floor === 0 ? 'Ground' : `${listing.floor}/${listing.totalFloors}`
+  const floorLabel = listing.floor === null ? '—' : listing.floor === 0 ? 'Ground' : String(listing.floor)
 
   return (
     <article className="group flex flex-col overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-lg hover:shadow-foreground/5">
       <div className="relative aspect-[4/3] overflow-hidden bg-muted">
         <Image
           src={listing.image || '/placeholder.svg'}
-          alt={`${listing.propertyType} on ${listing.street}, ${listing.neighborhood}`}
+          alt={listing.title || `${listing.propertyType || 'Property'} on ${listing.street}, ${listing.neighborhood}`}
           fill
           sizes="(min-width: 1280px) 25vw, (min-width: 768px) 40vw, 100vw"
           className="object-cover transition-transform duration-500 group-hover:scale-[1.03]"

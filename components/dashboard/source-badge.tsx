@@ -5,6 +5,7 @@ const DOT: Record<Source, string> = {
   facebook: 'bg-[#1877F2]',
   yad2: 'bg-[#FF7100]',
   madlan: 'bg-[#10B981]',
+  other: 'bg-muted-foreground',
 }
 
 export function SourceDot({ source, className }: { source: Source; className?: string }) {
