@@ -3,11 +3,13 @@
 import { useMemo, useState } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 import { toast } from 'sonner'
+import useSWR from 'swr'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { LISTINGS } from '@/lib/listings'
+import { buildCityIndex, collectPropertyTypes, type Listing } from '@/lib/listings'
+import { SupabaseLoadError, fetchListings } from '@/lib/supabase'
 import {
   EMPTY_FILTERS,
   countActiveFilters,
@@ -21,6 +23,7 @@ import {
 } from '@/lib/filters'
 import { FilterPanel } from './filter-panel'
 import { ListingsGrid } from './listings-grid'
+import { ListingsError, ListingsLoading } from './listings-status'
 import { SavedSearches } from './saved-searches'
 import { StatsBar } from './stats-bar'
 
@@ -50,29 +53,38 @@ const INITIAL_SAVED: SavedSearch[] = [
   },
 ]
 
+const NO_LISTINGS: Listing[] = []
+
 export function Dashboard() {
+  const { data, error, isLoading, mutate } = useSWR('supabase:properties', fetchListings, {
+    revalidateOnFocus: false,
+  })
+  const listings = data ?? NO_LISTINGS
+  const cities = useMemo(() => buildCityIndex(listings), [listings])
+  const propertyTypes = useMemo(() => collectPropertyTypes(listings), [listings])
+
   const [tab, setTab] = useState<TabKey>('all')
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS)
   const [applied, setApplied] = useState<Filters>(EMPTY_FILTERS)
   const [sort, setSort] = useState<SortKey>('newest')
-  const [favorites, setFavorites] = useState<Set<string>>(() => new Set(['l-1002', 'l-1005']))
+  const [favorites, setFavorites] = useState<Set<string>>(() => new Set())
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>(INITIAL_SAVED)
   const [filtersOpen, setFiltersOpen] = useState(false)
 
   const scope: DealScope = tab === 'rent' || tab === 'sale' ? tab : 'all'
 
   const results = useMemo(() => {
-    const base = tab === 'favorites' ? LISTINGS.filter((l) => favorites.has(l.id)) : LISTINGS
+    const base = tab === 'favorites' ? listings.filter((l) => favorites.has(l.id)) : listings
     return sortListings(filterListings(base, applied, scope), sort)
-  }, [tab, favorites, applied, scope, sort])
+  }, [listings, tab, favorites, applied, scope, sort])
 
   const counts = useMemo(
     () => ({
-      all: filterListings(LISTINGS, applied, 'all').length,
-      rent: filterListings(LISTINGS, applied, 'rent').length,
-      sale: filterListings(LISTINGS, applied, 'sale').length,
+      all: filterListings(listings, applied, 'all').length,
+      rent: filterListings(listings, applied, 'rent').length,
+      sale: filterListings(listings, applied, 'sale').length,
     }),
-    [applied],
+    [listings, applied],
   )
 
   const activeFilterCount = countActiveFilters(applied)
@@ -125,7 +137,11 @@ export function Dashboard() {
   }
 
   const panel = (
-    <FilterPanel filters={draft} onChange={setDraft} onSearch={handleSearch} onSave={handleSave} onReset={handleReset} />
+    <FilterPanel
+      filters={draft}
+      cities={cities}
+      propertyTypes={propertyTypes}
+      onChange={setDraft} onSearch={handleSearch} onSave={handleSave} onReset={handleReset} />
   )
 
   const tabs: { key: TabKey; label: string; count: number }[] = [
@@ -145,7 +161,7 @@ export function Dashboard() {
         </p>
       </div>
 
-      <StatsBar listings={LISTINGS} />
+      <StatsBar listings={listings} />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
         <aside className="hidden lg:block" aria-label="Search filters">
@@ -208,10 +224,22 @@ export function Dashboard() {
           </Tabs>
 
           <div className="mt-4">
-            {tab === 'saved' ? (
+            {error ? (
+              <ListingsError
+                message={error instanceof SupabaseLoadError ? error.message : 'Could not reach Supabase.'}
+                hint={
+                  error instanceof SupabaseLoadError
+                    ? error.hint
+                    : 'Check your connection and that the Supabase project is online.'
+                }
+                onRetry={() => mutate()}
+              />
+            ) : isLoading ? (
+              <ListingsLoading />
+            ) : tab === 'saved' ? (
               <SavedSearches
                 searches={savedSearches}
-                matchCount={(s) => filterListings(LISTINGS, s.filters, s.scope).length}
+                matchCount={(s) => filterListings(listings, s.filters, s.scope).length}
                 onRun={runSavedSearch}
                 onDelete={deleteSavedSearch}
               />
@@ -226,7 +254,7 @@ export function Dashboard() {
                   listings={results}
                   favorites={favorites}
                   onToggleFavorite={toggleFavorite}
-                  emptyTitle={tab === 'favorites' ? 'No favorites match' : 'No listings match your filters'}
+                  emptyTitle={tab === 'favorites' ? 'No favorites match' : 'No listings found'}
                   emptyDescription={
                     tab === 'favorites'
                       ? 'Tap the heart on any listing to add it to your favorites.'
