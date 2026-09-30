@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { AmenityKey, DealType, Listing, Source } from './listings'
 
 const PHOTOS_TABLE = 'property_photos'
+const LEGACY_PHOTOS_TABLE = 'proprety_photos'
 const MAX_ROWS = 1000
 
 type PropertyRow = {
@@ -141,6 +142,20 @@ function describeError(error: { message: string; code?: string }) {
   return new SupabaseLoadError(`Could not load listings from Supabase: ${error.message}`)
 }
 
+// The live database currently spells the table and FK "proprety_photos" / "proprety_id".
+// Try the intended name first, then fall back so photos load either way.
+async function fetchPhotoRows(supabase: SupabaseClient) {
+  const primary = await supabase
+    .from(PHOTOS_TABLE)
+    .select('id, property_id, photo_url, position')
+    .limit(MAX_ROWS * 10)
+  if (!primary.error || primary.error.code !== 'PGRST205') return primary
+  return supabase
+    .from(LEGACY_PHOTOS_TABLE)
+    .select('id, property_id:proprety_id, photo_url, position')
+    .limit(MAX_ROWS * 10)
+}
+
 export async function fetchListings(): Promise<Listing[]> {
   const supabase = getClient()
 
@@ -150,7 +165,7 @@ export async function fetchListings(): Promise<Listing[]> {
       .select('*')
       .order('published_at', { ascending: false, nullsFirst: false })
       .limit(MAX_ROWS),
-    supabase.from(PHOTOS_TABLE).select('id, property_id, photo_url, position').limit(MAX_ROWS * 10),
+    fetchPhotoRows(supabase),
   ])
 
   if (propertiesRes.error) throw describeError(propertiesRes.error)
