@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { validatePropertyInput } from '@/lib/import-listing'
 import { getAdminClient, upsertPropertyBySourceUrl } from '@/lib/upsert-property'
 import { mapYad2Item, type Yad2Item } from '@/lib/yad2-mapper'
+import { extractYad2ImageUrls, replacePropertyPhotos, resolvePhotoTable } from '@/lib/yad2-photos'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -12,6 +13,7 @@ const CONCURRENCY = 5
 const DATASET_ID_PATTERN = /^[A-Za-z0-9_~-]+$/
 
 type ImportError = { index: number; item_id: string | null; source_url: string | null; errors: string[] }
+type PhotoError = { item_id: string | null; source_url: string | null; property_id: string | number; errors: string[] }
 
 function jsonError(status: number, error: string) {
   return NextResponse.json({ success: false, error }, { status })
@@ -98,6 +100,35 @@ export async function POST(request: Request) {
   let created = 0
   let updated = 0
   const errors: ImportError[] = []
+  let photosInserted = 0
+  const photoErrors: PhotoError[] = []
+  const photoTablePromise = resolvePhotoTable(supabase)
+
+  // Photo failures are reported separately and never mark the listing itself as failed.
+  async function syncPhotos(item: Yad2Item, propertyId: string | number, itemId: string | null, sourceUrl: string | null) {
+    const { urls, skipped } = extractYad2ImageUrls(item)
+    const messages: string[] = []
+    if (skipped > 0) messages.push(`Skipped ${skipped} image entr${skipped === 1 ? 'y' : 'ies'} without a valid URL.`)
+
+    if (urls.length > 0) {
+      try {
+        const photoTable = await photoTablePromise
+        if (!photoTable) {
+          messages.push('No photo table found (property_photos / proprety_photos).')
+        } else {
+          const result = await replacePropertyPhotos(supabase!, photoTable, propertyId, urls)
+          photosInserted += result.inserted
+          messages.push(...result.errors)
+        }
+      } catch (error) {
+        messages.push(error instanceof Error ? error.message : 'Unknown photo error.')
+      }
+    }
+
+    if (messages.length > 0) {
+      photoErrors.push({ item_id: itemId, source_url: sourceUrl, property_id: propertyId, errors: messages })
+    }
+  }
 
   async function importItem(item: Yad2Item, index: number) {
     const mapped = mapYad2Item(item)
@@ -114,11 +145,12 @@ export async function POST(request: Request) {
       const result = await upsertPropertyBySourceUrl(supabase!, validation.data)
       if (!result.ok) {
         errors.push({ index, item_id: itemId, source_url: sourceUrl, errors: [result.error] })
-      } else if (result.action === 'created') {
-        created++
-      } else {
-        updated++
+        return
       }
+      if (result.action === 'created') created++
+      else updated++
+
+      await syncPhotos(item, result.id, itemId, sourceUrl)
     } catch (error) {
       errors.push({
         index,
@@ -143,5 +175,7 @@ export async function POST(request: Request) {
     updated,
     failed: errors.length,
     errors,
+    photos_inserted: photosInserted,
+    photo_errors: photoErrors,
   })
 }
