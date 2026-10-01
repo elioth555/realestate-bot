@@ -4,10 +4,10 @@ import { cn } from '@/lib/utils'
 import { AMENITY_LABELS, type Listing } from '@/lib/listings'
 import { formatPrice, formatPublished } from '@/lib/filters'
 import { AMENITY_ICONS } from './amenity-icons'
+import { ListingPhoto } from './listing-photo'
 import { SourceBadge } from './source-badge'
 
 const MAX_AMENITIES = 6
-const PLACEHOLDER_SRC = '/placeholder.svg'
 
 type ListingCardProps = {
   listing: Listing
@@ -19,23 +19,15 @@ export function ListingCard({ listing, isFavorite, onToggleFavorite }: ListingCa
   const visibleAmenities = listing.amenities.slice(0, MAX_AMENITIES)
   const hiddenCount = listing.amenities.length - visibleAmenities.length
   const floorLabel = listing.floor === null ? '—' : listing.floor === 0 ? 'Ground' : String(listing.floor)
-  const firstPhoto = (listing.photos?.[0] ?? listing.image ?? '').trim()
-  const photoSrc = firstPhoto || PLACEHOLDER_SRC
+  const photoCandidates = listing.photos?.length ? listing.photos : [listing.image]
 
   return (
     <article className="group flex flex-col overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-lg hover:shadow-foreground/5">
       <div className="relative aspect-[4/3] overflow-hidden bg-muted">
-        {/* Plain <img> so any public Supabase storage URL renders without next/image remote-domain config. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          key={photoSrc}
-          src={photoSrc}
+        {/* Plain <img> (via ListingPhoto) so external Yad2/Supabase URLs render without next/image remote-domain config. */}
+        <ListingPhoto
+          photos={photoCandidates}
           alt={listing.title || `${listing.propertyType || 'Property'} on ${listing.street}, ${listing.neighborhood}`}
-          loading="lazy"
-          decoding="async"
-          onError={(event) => {
-            if (!event.currentTarget.src.endsWith(PLACEHOLDER_SRC)) event.currentTarget.src = PLACEHOLDER_SRC
-          }}
           className="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
         />
         <div className="absolute inset-x-3 top-3 flex items-start justify-between">
