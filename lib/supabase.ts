@@ -142,18 +142,60 @@ function describeError(error: { message: string; code?: string }) {
   return new SupabaseLoadError(`Could not load listings from Supabase: ${error.message}`)
 }
 
-// The live database currently spells the table and FK "proprety_photos" / "proprety_id".
-// Try the intended name first, then fall back so photos load either way.
+const PHOTO_PAGE_SIZE = 1000
+const MAX_PHOTO_PAGES = 50
+
+type RawPhotoRow = Record<string, unknown>
+
+function normalizePhotoRow(row: RawPhotoRow): PhotoRow | null {
+  const propertyId = row.property_id ?? row.proprety_id
+  if (propertyId === null || propertyId === undefined || propertyId === '') return null
+  return {
+    id: row.id as string | number,
+    property_id: propertyId as string | number,
+    photo_url: typeof row.photo_url === 'string' ? row.photo_url.trim() : null,
+    position: row.position as number | string | null,
+  }
+}
+
+// PostgREST caps each response at its max-rows setting (1000 by default) regardless of .limit(),
+// so page through the table explicitly to get every photo row.
+async function fetchAllRows(supabase: SupabaseClient, table: string) {
+  const rows: RawPhotoRow[] = []
+  for (let page = 0; page < MAX_PHOTO_PAGES; page++) {
+    const from = page * PHOTO_PAGE_SIZE
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .order('id', { ascending: true })
+      .range(from, from + PHOTO_PAGE_SIZE - 1)
+    if (error) return { rows, error }
+    rows.push(...((data ?? []) as RawPhotoRow[]))
+    if (!data || data.length < PHOTO_PAGE_SIZE) break
+  }
+  return { rows, error: null }
+}
+
+// Selecting "*" and normalizing in JS tolerates both FK spellings (property_id / proprety_id).
+// Both table names are queried because the API currently exposes the legacy "proprety_photos" name.
 async function fetchPhotoRows(supabase: SupabaseClient) {
-  const primary = await supabase
-    .from(PHOTOS_TABLE)
-    .select('id, property_id, photo_url, position')
-    .limit(MAX_ROWS * 10)
-  if (!primary.error || primary.error.code !== 'PGRST205') return primary
-  return supabase
-    .from(LEGACY_PHOTOS_TABLE)
-    .select('id, property_id:proprety_id, photo_url, position')
-    .limit(MAX_ROWS * 10)
+  const results = await Promise.all([PHOTOS_TABLE, LEGACY_PHOTOS_TABLE].map((t) => fetchAllRows(supabase, t)))
+  const available = results.filter((r) => !r.error)
+  if (available.length === 0) return { data: [] as PhotoRow[], error: results[0].error }
+
+  const seen = new Set<string>()
+  const data: PhotoRow[] = []
+  for (const { rows } of available) {
+    for (const raw of rows) {
+      const row = normalizePhotoRow(raw)
+      if (!row?.photo_url) continue
+      const key = `${row.property_id}|${row.photo_url}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      data.push(row)
+    }
+  }
+  return { data, error: null }
 }
 
 export async function fetchListings(): Promise<Listing[]> {
@@ -174,7 +216,12 @@ export async function fetchListings(): Promise<Listing[]> {
   if (photosRes.error) {
     console.warn(`Could not load ${PHOTOS_TABLE}; showing properties without photos.`, photosRes.error.message)
   }
-  const photosByProperty = groupPhotosByProperty(photosRes.error ? [] : ((photosRes.data ?? []) as PhotoRow[]))
+  const photosByProperty = groupPhotosByProperty(photosRes.error ? [] : photosRes.data)
+
+  const diagnosticPhotos = photosByProperty.get('24') ?? []
+  console.log(
+    `[v0] photo diagnostics: property 24 -> ${diagnosticPhotos.length} photos, first: ${diagnosticPhotos[0] ?? 'none'} (total photo rows: ${photosRes.data.length}, properties with photos: ${photosByProperty.size})`,
+  )
 
   return ((propertiesRes.data ?? []) as PropertyRow[]).map((row) => {
     const id = String(row.id)
