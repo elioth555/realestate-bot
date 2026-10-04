@@ -13,8 +13,16 @@ export type Yad2SearchInput = {
 }
 
 export type StartYad2SearchResult =
-  | { ok: true; runId: string; runIds: string[]; status: string; reusedActiveRun: boolean }
-  | { ok: false; kind: 'unsupported' | 'invalid' | 'error'; message: string }
+  | {
+      ok: true
+      /** Every Apify run started for this search (one per Yad2 neighborhood ID). */
+      runIds: string[]
+      status: string
+      /** Runs of this search that Apify refused to start while others did start. */
+      startFailures: number
+      startLimitReached: boolean
+    }
+  | { ok: false; kind: 'unsupported' | 'invalid' | 'limit' | 'error'; message: string }
 
 export type Yad2RunStatus =
   | { ok: true; status: string; finishedAt: string | null }
@@ -55,16 +63,24 @@ export async function startYad2Search(input: Yad2SearchInput): Promise<StartYad2
   })
   if (!validation.ok) return { ok: false, kind: 'invalid', message: validation.errors.join(' ') }
 
-  const run = await startYad2Run(validation.data, { reuseActiveRun: true })
+  const run = await startYad2Run(validation.data)
   if (!run.ok) {
+    if (run.limitReached) {
+      return {
+        ok: false,
+        kind: 'limit',
+        message:
+          'Apify concurrency limit reached: another Yad2 run is still active, so this search could not start. Try again once it finishes.',
+      }
+    }
     return { ok: false, kind: 'error', message: [run.error, ...(run.details ?? [])].join(' ') }
   }
   return {
     ok: true,
-    runId: run.runId,
     runIds: run.runs.map((r) => r.runId),
     status: run.status,
-    reusedActiveRun: run.reusedActiveRun,
+    startFailures: run.failedRuns.length,
+    startLimitReached: run.failedRuns.some((f) => f.limitReached),
   }
 }
 

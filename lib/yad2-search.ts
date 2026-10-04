@@ -47,10 +47,17 @@ export type StartRunResult =
       actorInput: ActorInput
       runs: StartedRun[]
       /** URLs whose run could not be started while others did. */
-      failedRuns: { searchUrl: string; error: string }[]
-      reusedActiveRun: boolean
+      failedRuns: { searchUrl: string; error: string; limitReached: boolean }[]
     }
-  | { ok: false; httpStatus: number; error: string; details?: string[]; actorInput?: ActorInput }
+  | {
+      ok: false
+      httpStatus: number
+      error: string
+      details?: string[]
+      actorInput?: ActorInput
+      /** Apify refused the run because a concurrency/memory limit is reached. */
+      limitReached?: boolean
+    }
 
 export type RunStatusResult =
   | { ok: true; runId: string; status: string; finishedAt: string | null }
@@ -182,20 +189,6 @@ async function apifyGet<T>(path: string, token: string): Promise<{ ok: boolean; 
 
 type RunSummary = { id?: string; status?: string; actId?: string; finishedAt?: string | null }
 
-async function findActiveRun(actorId: string, token: string) {
-  try {
-    const { ok, body } = await apifyGet<{ data?: { items?: RunSummary[] } }>(
-      `/acts/${encodeURIComponent(actorId)}/runs?desc=true&limit=10`,
-      token,
-    )
-    if (!ok) return null
-    return body?.data?.items?.find((run) => run.id && run.status && ACTIVE_RUN_STATUSES.includes(run.status)) ?? null
-  } catch (error) {
-    console.error('yad2-search: could not list active runs', error)
-    return null
-  }
-}
-
 function actorInputFor(searchUrl: string): ActorInput {
   return {
     start_urls: [{ url: searchUrl }],
@@ -206,34 +199,17 @@ function actorInputFor(searchUrl: string): ActorInput {
 
 /**
  * Starts one Yad2 actor run per generated URL; every run is imported by the existing webhook and
- * deduped by `source_url`. When `reuseActiveRun` is true and a run of the actor is already
- * READY/RUNNING, that run is returned instead of launching duplicates.
+ * deduped by `source_url`. Always launches new runs for this search — unrelated active runs are never reused.
  */
-export async function startYad2Run(
-  criteria: SearchCriteria,
-  { reuseActiveRun = false }: { reuseActiveRun?: boolean } = {},
-): Promise<StartRunResult> {
+export async function startYad2Run(criteria: SearchCriteria): Promise<StartRunResult> {
   const config = readApifyConfig()
   if (!config.ok) return { ok: false, httpStatus: 500, error: config.error }
 
   const { urls } = buildSearchUrls(criteria)
 
-  if (reuseActiveRun) {
-    const active = await findActiveRun(config.actorId, config.token)
-    if (active?.id) {
-      const run: StartedRun = {
-        runId: active.id,
-        status: active.status ?? 'RUNNING',
-        searchUrl: urls[0],
-        actorInput: actorInputFor(urls[0]),
-      }
-      return { ok: true, ...run, runs: [run], failedRuns: [], reusedActiveRun: true }
-    }
-  }
-
   // Sequential so a failure (e.g. quota) is reported per URL without a burst of parallel launches.
   const runs: StartedRun[] = []
-  const failedRuns: { searchUrl: string; error: string }[] = []
+  const failedRuns: { searchUrl: string; error: string; limitReached: boolean }[] = []
   let lastFailure: Extract<StartRunResult, { ok: false }> | null = null
   for (const searchUrl of urls) {
     const result = await launchRun(config, searchUrl)
@@ -241,12 +217,24 @@ export async function startYad2Run(
       runs.push(result.run)
     } else {
       lastFailure = result.failure
-      failedRuns.push({ searchUrl, error: [result.failure.error, ...(result.failure.details ?? [])].join(' ') })
+      failedRuns.push({
+        searchUrl,
+        error: [result.failure.error, ...(result.failure.details ?? [])].join(' '),
+        limitReached: result.failure.limitReached === true,
+      })
     }
   }
 
   if (runs.length === 0) return lastFailure ?? { ok: false, httpStatus: 502, error: 'Failed to start the Apify actor.' }
-  return { ok: true, ...runs[0], runs, failedRuns, reusedActiveRun: false }
+  return { ok: true, ...runs[0], runs, failedRuns }
+}
+
+// Apify rejects new runs with 402/429 or these error types when the account's concurrency/memory limit is reached.
+const LIMIT_ERROR_PATTERN = /limit|concurren|memory|quota|exceeded/i
+
+function isLimitRejection(httpStatus: number, error?: { type?: string; message?: string }) {
+  if (httpStatus === 402 || httpStatus === 429) return true
+  return LIMIT_ERROR_PATTERN.test(`${error?.type ?? ''} ${error?.message ?? ''}`)
 }
 
 async function launchRun(
@@ -275,9 +263,19 @@ async function launchRun(
   if (!apifyResponse.ok || !result?.data?.id) {
     const message = result?.error?.message ?? `Apify returned HTTP ${apifyResponse.status}.`
     console.error('yad2-search: Apify rejected the run', apifyResponse.status, result?.error)
+    const limitReached = isLimitRejection(apifyResponse.status, result?.error)
     return {
       ok: false,
-      failure: { ok: false, httpStatus: 502, error: 'Failed to start the Apify actor.', details: [message], actorInput },
+      failure: {
+        ok: false,
+        httpStatus: limitReached ? 429 : 502,
+        error: limitReached
+          ? 'Apify concurrency limit reached: another Yad2 run is still active, so a new run could not be started.'
+          : 'Failed to start the Apify actor.',
+        details: [message],
+        actorInput,
+        limitReached,
+      },
     }
   }
 
