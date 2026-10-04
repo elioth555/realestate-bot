@@ -62,7 +62,7 @@ function toEntranceDate(value: unknown): string | null {
   const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/)
   const dmy = str.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/)
   const [y, m, d] = iso ? [iso[1], iso[2], iso[3]] : dmy ? [dmy[3], dmy[2], dmy[1]] : []
-  if (!y) return null
+  if (!y || !m || !d) return null
   const date = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
   const parsed = new Date(`${date}T00:00:00Z`)
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().startsWith(date) ? date : null
