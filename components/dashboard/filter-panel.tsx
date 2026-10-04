@@ -1,6 +1,6 @@
 'use client'
 
-import { BookmarkPlus, RotateCcw, Search } from 'lucide-react'
+import { BookmarkPlus, Loader2, RotateCcw, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,6 +18,7 @@ type FilterPanelProps = {
   onSearch: () => void
   onSave: () => void
   onReset: () => void
+  searching?: boolean
 }
 
 type Option = { label: string; value: string | null }
@@ -118,6 +119,7 @@ export function FilterPanel({
   onSearch,
   onSave,
   onReset,
+  searching = false,
 }: FilterPanelProps) {
   const set = <K extends keyof Filters>(key: K, value: Filters[K]) => onChange({ ...filters, [key]: value })
 
@@ -268,9 +270,13 @@ export function FilterPanel({
           <BookmarkPlus className="size-4" aria-hidden="true" />
           Save search
         </Button>
-        <Button type="submit" className="h-10 gap-1.5">
-          <Search className="size-4" aria-hidden="true" />
-          Search
+        <Button type="submit" className="h-10 gap-1.5" disabled={searching} aria-busy={searching}>
+          {searching ? (
+            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Search className="size-4" aria-hidden="true" />
+          )}
+          {searching ? 'Searching…' : 'Search'}
         </Button>
       </div>
     </form>

@@ -26,6 +26,8 @@ import { ListingsGrid } from './listings-grid'
 import { ListingsError, ListingsLoading } from './listings-status'
 import { SavedSearches } from './saved-searches'
 import { StatsBar } from './stats-bar'
+import { useYad2Search } from './use-yad2-search'
+import { Yad2SearchStatus } from './yad2-search-status'
 
 type TabKey = 'all' | 'rent' | 'sale' | 'saved' | 'favorites'
 
@@ -73,6 +75,8 @@ export function Dashboard() {
 
   const scope: DealScope = tab === 'rent' || tab === 'sale' ? tab : 'all'
 
+  const yad2 = useYad2Search(() => mutate())
+
   const results = useMemo(() => {
     const base = tab === 'favorites' ? listings.filter((l) => favorites.has(l.id)) : listings
     return sortListings(filterListings(base, applied, scope), sort)
@@ -102,6 +106,15 @@ export function Dashboard() {
     setApplied(draft)
     if (tab === 'saved') setTab('all')
     setFiltersOpen(false)
+    void yad2.start({
+      city: draft.city,
+      transactionType: scope === 'sale' ? 'sale' : 'rent',
+      minRooms: draft.minRooms,
+      maxRooms: draft.maxRooms,
+      minPrice: draft.minPrice,
+      maxPrice: draft.maxPrice,
+      neighborhood: draft.neighborhood,
+    })
   }
 
   const handleSave = () => {
@@ -141,7 +154,8 @@ export function Dashboard() {
       filters={draft}
       cities={cities}
       propertyTypes={propertyTypes}
-      onChange={setDraft} onSearch={handleSearch} onSave={handleSave} onReset={handleReset} />
+      onChange={setDraft} onSearch={handleSearch} onSave={handleSave} onReset={handleReset}
+      searching={yad2.isSearching} />
   )
 
   const tabs: { key: TabKey; label: string; count: number }[] = [
@@ -224,6 +238,7 @@ export function Dashboard() {
           </Tabs>
 
           <div className="mt-4">
+            <Yad2SearchStatus state={yad2.state} onDismiss={yad2.dismiss} />
             {error ? (
               <ListingsError
                 message={error instanceof SupabaseLoadError ? error.message : 'Could not reach Supabase.'}
