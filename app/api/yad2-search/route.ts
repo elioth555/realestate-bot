@@ -136,9 +136,9 @@ export async function POST(request: Request) {
 
   const searchUrl = buildSearchUrl(criteria)
   const actorInput = {
-    startUrls: [{ url: searchUrl }],
-    maxPagesPerSearch: MAX_PAGES_PER_SEARCH,
-    maxRequestsPerCrawl: MAX_REQUESTS_PER_CRAWL,
+    start_urls: [{ url: searchUrl }],
+    max_pages_per_search: MAX_PAGES_PER_SEARCH,
+    max_requests_per_crawl: MAX_REQUESTS_PER_CRAWL,
   }
 
   let apifyResponse: Response
@@ -162,7 +162,10 @@ export async function POST(request: Request) {
   if (!apifyResponse.ok || !result?.data?.id) {
     const message = result?.error?.message ?? `Apify returned HTTP ${apifyResponse.status}.`
     console.error('yad2-search: Apify rejected the run', apifyResponse.status, result?.error)
-    return jsonError(502, 'Failed to start the Apify actor.', [message])
+    return NextResponse.json(
+      { success: false, error: 'Failed to start the Apify actor.', details: [message], actor_input: actorInput },
+      { status: 502 },
+    )
   }
 
   return NextResponse.json(
@@ -178,7 +181,7 @@ export async function POST(request: Request) {
               'neighborhood_ids were received but are not applied: the old Yad2 URL format has no verified neighborhood parameter.',
           }
         : {}),
-      actor_input: { max_pages_per_search: MAX_PAGES_PER_SEARCH, max_requests_per_crawl: MAX_REQUESTS_PER_CRAWL },
+      actor_input: actorInput,
     },
     { status: 201, headers: { 'Cache-Control': 'no-store' } },
   )
