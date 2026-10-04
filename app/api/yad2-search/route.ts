@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { buildSearchUrl, startYad2Run, validateCriteria } from '@/lib/yad2-search'
+import { buildSearchUrls, startYad2Run, validateCriteria } from '@/lib/yad2-search'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
   }
 
   const { neighborhoods } = criteria
-  const neighborhoodFilterApplied = buildSearchUrl(criteria).neighborhoodFilterApplied
+  const neighborhoodFilterApplied = buildSearchUrls(criteria).neighborhoodFilterApplied
   const requestedNeighborhoods = neighborhoods.applied.length + neighborhoods.unsupported.length > 0
   const notes = [
     ...neighborhoods.notes,
@@ -66,6 +66,9 @@ export async function POST(request: Request) {
       run_id: run.runId,
       status: run.status,
       search_url: run.searchUrl,
+      run_ids: run.runs.map((r) => r.runId),
+      search_urls: run.runs.map((r) => r.searchUrl),
+      ...(run.failedRuns.length > 0 ? { failed_runs: run.failedRuns } : {}),
       neighborhood_filter_applied: neighborhoodFilterApplied,
       applied_neighborhoods: neighborhoods.applied,
       applied_neighborhood_ids: neighborhoods.ids,

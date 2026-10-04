@@ -13,7 +13,7 @@ export type Yad2SearchInput = {
 }
 
 export type StartYad2SearchResult =
-  | { ok: true; runId: string; status: string; reusedActiveRun: boolean }
+  | { ok: true; runId: string; runIds: string[]; status: string; reusedActiveRun: boolean }
   | { ok: false; kind: 'unsupported' | 'invalid' | 'error'; message: string }
 
 export type Yad2RunStatus =
@@ -59,7 +59,13 @@ export async function startYad2Search(input: Yad2SearchInput): Promise<StartYad2
   if (!run.ok) {
     return { ok: false, kind: 'error', message: [run.error, ...(run.details ?? [])].join(' ') }
   }
-  return { ok: true, runId: run.runId, status: run.status, reusedActiveRun: run.reusedActiveRun }
+  return {
+    ok: true,
+    runId: run.runId,
+    runIds: run.runs.map((r) => r.runId),
+    status: run.status,
+    reusedActiveRun: run.reusedActiveRun,
+  }
 }
 
 export async function checkYad2Run(runId: string): Promise<Yad2RunStatus> {

@@ -35,13 +35,19 @@ export type ActorInput = {
   maxRequestsPerCrawl: number
 }
 
+export type StartedRun = { runId: string; status: string; searchUrl: string; actorInput: ActorInput }
+
 export type StartRunResult =
   | {
       ok: true
+      /** First run, kept for single-run callers. */
       runId: string
       status: string
       searchUrl: string
       actorInput: ActorInput
+      runs: StartedRun[]
+      /** URLs whose run could not be started while others did. */
+      failedRuns: { searchUrl: string; error: string }[]
       reusedActiveRun: boolean
     }
   | { ok: false; httpStatus: number; error: string; details?: string[]; actorInput?: ActorInput }
@@ -125,7 +131,8 @@ export function validateCriteria(
 
   if (errors.length > 0) return { ok: false, status: 400, errors }
   const neighborhoods = resolveYad2Neighborhoods(neighborhoodNames, neighborhoodIds)
-  if (neighborhoods.ids.length > 1) {
+  // One dashboard neighborhood may expand to several Yad2 IDs (one run each); selecting several is still unsupported.
+  if (neighborhoods.applied.length > 1) {
     return {
       ok: false,
       status: 400,
@@ -135,17 +142,22 @@ export function validateCriteria(
   return { ok: true, data: { cityKey, minRooms, maxRooms, maxPrice, neighborhoods } }
 }
 
-export function buildSearchUrl(criteria: SearchCriteria) {
+function buildUrlFor(criteria: SearchCriteria, neighborhoodId: string | null) {
   const city = CITY_CONFIG[criteria.cityKey]
-  const neighborhoodId = criteria.neighborhoods.ids.length === 1 ? criteria.neighborhoods.ids[0] : null
-
   const url = new URL(`https://www.yad2.co.il/realestate/${city.path}`)
   for (const [key, value] of Object.entries(city.params)) url.searchParams.set(key, value)
   if (neighborhoodId) url.searchParams.set('neighborhood', neighborhoodId)
   if (criteria.minRooms !== null) url.searchParams.set('minRooms', String(criteria.minRooms))
   if (criteria.maxRooms !== null) url.searchParams.set('maxRooms', String(criteria.maxRooms))
   if (criteria.maxPrice !== null) url.searchParams.set('maxPrice', String(Math.round(criteria.maxPrice)))
-  return { url: url.toString(), neighborhoodFilterApplied: neighborhoodId !== null }
+  return url.toString()
+}
+
+/** One actor-compatible URL per Yad2 neighborhood ID (single `neighborhood=<ID>` each), or one city-wide URL. */
+export function buildSearchUrls(criteria: SearchCriteria) {
+  const ids = criteria.neighborhoods.ids
+  const urls = ids.length > 0 ? ids.map((id) => buildUrlFor(criteria, id)) : [buildUrlFor(criteria, null)]
+  return { urls, neighborhoodFilterApplied: ids.length > 0 }
 }
 
 function readApifyConfig() {
@@ -184,9 +196,18 @@ async function findActiveRun(actorId: string, token: string) {
   }
 }
 
+function actorInputFor(searchUrl: string): ActorInput {
+  return {
+    start_urls: [{ url: searchUrl }],
+    maxPagesPerSearch: MAX_PAGES_PER_SEARCH,
+    maxRequestsPerCrawl: MAX_REQUESTS_PER_CRAWL,
+  }
+}
+
 /**
- * Starts the Yad2 actor. When `reuseActiveRun` is true and a run of the actor is already
- * READY/RUNNING, that run is returned instead of launching a duplicate.
+ * Starts one Yad2 actor run per generated URL; every run is imported by the existing webhook and
+ * deduped by `source_url`. When `reuseActiveRun` is true and a run of the actor is already
+ * READY/RUNNING, that run is returned instead of launching duplicates.
  */
 export async function startYad2Run(
   criteria: SearchCriteria,
@@ -195,27 +216,44 @@ export async function startYad2Run(
   const config = readApifyConfig()
   if (!config.ok) return { ok: false, httpStatus: 500, error: config.error }
 
-  const { url: searchUrl } = buildSearchUrl(criteria)
-  const actorInput: ActorInput = {
-    start_urls: [{ url: searchUrl }],
-    maxPagesPerSearch: MAX_PAGES_PER_SEARCH,
-    maxRequestsPerCrawl: MAX_REQUESTS_PER_CRAWL,
-  }
+  const { urls } = buildSearchUrls(criteria)
 
   if (reuseActiveRun) {
     const active = await findActiveRun(config.actorId, config.token)
     if (active?.id) {
-      return {
-        ok: true,
+      const run: StartedRun = {
         runId: active.id,
         status: active.status ?? 'RUNNING',
-        searchUrl,
-        actorInput,
-        reusedActiveRun: true,
+        searchUrl: urls[0],
+        actorInput: actorInputFor(urls[0]),
       }
+      return { ok: true, ...run, runs: [run], failedRuns: [], reusedActiveRun: true }
     }
   }
 
+  // Sequential so a failure (e.g. quota) is reported per URL without a burst of parallel launches.
+  const runs: StartedRun[] = []
+  const failedRuns: { searchUrl: string; error: string }[] = []
+  let lastFailure: Extract<StartRunResult, { ok: false }> | null = null
+  for (const searchUrl of urls) {
+    const result = await launchRun(config, searchUrl)
+    if (result.ok) {
+      runs.push(result.run)
+    } else {
+      lastFailure = result.failure
+      failedRuns.push({ searchUrl, error: [result.failure.error, ...(result.failure.details ?? [])].join(' ') })
+    }
+  }
+
+  if (runs.length === 0) return lastFailure ?? { ok: false, httpStatus: 502, error: 'Failed to start the Apify actor.' }
+  return { ok: true, ...runs[0], runs, failedRuns, reusedActiveRun: false }
+}
+
+async function launchRun(
+  config: { token: string; actorId: string },
+  searchUrl: string,
+): Promise<{ ok: true; run: StartedRun } | { ok: false; failure: Extract<StartRunResult, { ok: false }> }> {
+  const actorInput = actorInputFor(searchUrl)
   let apifyResponse: Response
   try {
     apifyResponse = await fetch(`${APIFY_API}/acts/${encodeURIComponent(config.actorId)}/runs`, {
@@ -227,7 +265,7 @@ export async function startYad2Run(
     })
   } catch (error) {
     console.error('yad2-search: Apify request failed', error)
-    return { ok: false, httpStatus: 502, error: 'Could not reach the Apify API.' }
+    return { ok: false, failure: { ok: false, httpStatus: 502, error: 'Could not reach the Apify API.', actorInput } }
   }
 
   const result = (await apifyResponse.json().catch(() => null)) as
@@ -237,16 +275,15 @@ export async function startYad2Run(
   if (!apifyResponse.ok || !result?.data?.id) {
     const message = result?.error?.message ?? `Apify returned HTTP ${apifyResponse.status}.`
     console.error('yad2-search: Apify rejected the run', apifyResponse.status, result?.error)
-    return { ok: false, httpStatus: 502, error: 'Failed to start the Apify actor.', details: [message], actorInput }
+    return {
+      ok: false,
+      failure: { ok: false, httpStatus: 502, error: 'Failed to start the Apify actor.', details: [message], actorInput },
+    }
   }
 
   return {
     ok: true,
-    runId: result.data.id,
-    status: result.data.status ?? 'READY',
-    searchUrl,
-    actorInput,
-    reusedActiveRun: false,
+    run: { runId: result.data.id, status: result.data.status ?? 'READY', searchUrl, actorInput },
   }
 }
 
