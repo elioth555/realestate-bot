@@ -1,6 +1,6 @@
 'use client'
 
-import { BookmarkPlus, Loader2, RotateCcw, Search } from 'lucide-react'
+import { BookmarkPlus, Loader2, RefreshCw, RotateCcw, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -19,7 +19,11 @@ type FilterPanelProps = {
   onSearch: () => void
   onSave: () => void
   onReset: () => void
-  searching?: boolean
+  onRefreshYad2: () => void
+  /** The Yad2 start request is in flight (a few seconds); never blocks local filtering. */
+  refreshStarting?: boolean
+  /** A background Yad2 update is running for any criteria. */
+  yad2Updating?: boolean
 }
 
 type Option = { label: string; value: string | null }
@@ -187,7 +191,9 @@ export function FilterPanel({
   onSearch,
   onSave,
   onReset,
-  searching = false,
+  onRefreshYad2,
+  refreshStarting = false,
+  yad2Updating = false,
 }: FilterPanelProps) {
   const set = <K extends keyof Filters>(key: K, value: Filters[K]) => onChange({ ...filters, [key]: value })
 
@@ -335,14 +341,28 @@ export function FilterPanel({
           <BookmarkPlus className="size-4" aria-hidden="true" />
           Save search
         </Button>
-        <Button type="submit" className="h-10 gap-1.5" disabled={searching} aria-busy={searching}>
-          {searching ? (
+        <Button type="submit" className="h-10 gap-1.5">
+          <Search className="size-4" aria-hidden="true" />
+          Apply filters
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={onRefreshYad2}
+          disabled={refreshStarting}
+          aria-busy={refreshStarting}
+          className="col-span-2 h-10 gap-1.5"
+        >
+          {refreshStarting ? (
             <Loader2 className="size-4 animate-spin" aria-hidden="true" />
           ) : (
-            <Search className="size-4" aria-hidden="true" />
+            <RefreshCw className={cn('size-4', yad2Updating && 'animate-spin')} aria-hidden="true" />
           )}
-          {searching ? 'Searching…' : 'Search'}
+          {refreshStarting ? 'Starting Yad2 refresh…' : 'Refresh from Yad2'}
         </Button>
+        <p className="col-span-2 text-xs leading-relaxed text-muted-foreground">
+          Filters apply instantly to stored listings. Yad2 refresh imports new listings in the background.
+        </p>
       </div>
     </form>
   )

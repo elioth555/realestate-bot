@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertCircle, Clock, Loader2, X } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Clock, Loader2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import type { Yad2SearchState } from './use-yad2-search'
 
 function formatElapsed(ms: number) {
@@ -22,11 +23,50 @@ function useNow(active: boolean) {
   return now
 }
 
-export function Yad2SearchStatus({ state, onDismiss }: { state: Yad2SearchState; onDismiss: () => void }) {
-  const showsDiagnostics = state.phase !== 'idle' && state.phase !== 'failed' && state.startedAt !== null
+export function Yad2SearchStatus({
+  state,
+  onDismiss,
+  matchCount,
+}: {
+  state: Yad2SearchState
+  onDismiss: () => void
+  /** Listings matching the filters currently on screen, so a zero-new update never reads as "nothing found". */
+  matchCount: number
+}) {
+  const showsDiagnostics =
+    state.phase !== 'idle' && state.phase !== 'failed' && state.phase !== 'done' && state.startedAt !== null
   const now = useNow(showsDiagnostics)
 
   if (state.phase === 'idle') return null
+
+  if (state.phase === 'done') {
+    const partial = state.outcome === 'partial'
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className={cn(
+          'mb-4 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm',
+          partial ? 'border-destructive/30 bg-destructive/5' : 'bg-card',
+        )}
+      >
+        {partial ? (
+          <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />
+        ) : (
+          <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
+        )}
+        <p className="flex-1 leading-relaxed text-foreground">
+          {`${state.message} Showing ${matchCount} existing match${matchCount === 1 ? '' : 'es'}.`}
+          {partial && state.summary
+            ? ` ${state.summary.failed} of ${state.summary.total} Yad2 searches did not complete.`
+            : ''}
+        </p>
+        <Button variant="ghost" size="icon" className="-my-1 size-7" onClick={onDismiss} aria-label="Dismiss message">
+          <X className="size-4" aria-hidden="true" />
+        </Button>
+      </div>
+    )
+  }
 
   if (state.phase === 'failed') {
     return (

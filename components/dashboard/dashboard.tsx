@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 import { toast } from 'sonner'
 import useSWR from 'swr'
@@ -70,7 +70,8 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
 
   const [tab, setTab] = useState<TabKey>(initialState.tab)
   const [draft, setDraft] = useState<Filters>(initialState.filters)
-  const [applied, setApplied] = useState<Filters>(initialState.filters)
+  // Local filtering follows the panel live; deferring keeps typing responsive while 500+ listings re-filter.
+  const applied = useDeferredValue(draft)
   const [sort, setSort] = useState<SortKey>(initialState.sort)
   const [favorites, setFavorites] = useState<Set<string>>(() => new Set())
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>(INITIAL_SAVED)
@@ -130,9 +131,12 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
   }
 
   const handleSearch = () => {
-    setApplied(draft)
     if (tab === 'saved') setTab('all')
     setFiltersOpen(false)
+  }
+
+  const handleRefreshYad2 = () => {
+    if (tab === 'saved') setTab('all')
     void yad2.start(yad2Input)
   }
 
@@ -147,19 +151,16 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
       createdAt: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date()),
     }
     setSavedSearches((prev) => [search, ...prev])
-    setApplied(draft)
     setFiltersOpen(false)
     toast.success('Search saved', { description: name })
   }
 
   const handleReset = () => {
     setDraft(EMPTY_FILTERS)
-    setApplied(EMPTY_FILTERS)
   }
 
   const runSavedSearch = (search: SavedSearch) => {
     setDraft(search.filters)
-    setApplied(search.filters)
     setTab(search.scope)
   }
 
@@ -174,7 +175,9 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
       cities={cities}
       propertyTypes={propertyTypes}
       onChange={setDraft} onSearch={handleSearch} onSave={handleSave} onReset={handleReset}
-      searching={yad2.isSearching} />
+      onRefreshYad2={handleRefreshYad2}
+      refreshStarting={yad2.isStarting}
+      yad2Updating={yad2.isUpdating} />
   )
 
   const tabs: { key: TabKey; label: string; count: number }[] = [
@@ -257,7 +260,7 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
           </Tabs>
 
           <div className="mt-4">
-            <Yad2SearchStatus state={yad2.state} onDismiss={yad2.dismiss} />
+            <Yad2SearchStatus state={yad2.state} onDismiss={yad2.dismiss} matchCount={results.length} />
             {error ? (
               <ListingsError
                 message={error instanceof SupabaseLoadError ? error.message : 'Could not reach Supabase.'}
