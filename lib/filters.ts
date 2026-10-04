@@ -1,6 +1,6 @@
 import type { AmenityKey, DealType, Listing } from './listings'
 import { AMENITY_LABELS } from './listings'
-import { normalizeCity, normalizeNeighborhood, normalizePropertyType, sameNormalized } from './normalize'
+import { compileQuery, evaluateListing } from './matching/engine'
 
 export type Filters = {
   city: string | null
@@ -42,35 +42,10 @@ export const EMPTY_FILTERS: Filters = {
 
 export const ROOM_OPTIONS = ['1', '1.5', '2', '2.5', '3', '3.5', '4', '4.5', '5', '6']
 
-function toNumber(value: string | null) {
-  if (value === null || value.trim() === '') return null
-  const n = Number(value)
-  return Number.isFinite(n) ? n : null
-}
-
+/** Dashboard results: confirmed and possible matches, per the criterion rules in lib/matching/engine. */
 export function filterListings(listings: Listing[], filters: Filters, scope: DealScope) {
-  const minPrice = toNumber(filters.minPrice)
-  const maxPrice = toNumber(filters.maxPrice)
-  const minRooms = toNumber(filters.minRooms)
-  const maxRooms = toNumber(filters.maxRooms)
-  const minSurface = toNumber(filters.minSurface)
-  const maxSurface = toNumber(filters.maxSurface)
-
-  return listings.filter((l) => {
-    if (scope !== 'all' && l.dealType !== scope) return false
-    if (filters.city && !sameNormalized(normalizeCity, l.city, filters.city)) return false
-    if (filters.neighborhood && !sameNormalized(normalizeNeighborhood, l.neighborhood, filters.neighborhood))
-      return false
-    if (filters.propertyType && !sameNormalized(normalizePropertyType, l.propertyType, filters.propertyType))
-      return false
-    if (minPrice !== null && l.price < minPrice) return false
-    if (maxPrice !== null && l.price > maxPrice) return false
-    if (minRooms !== null && l.rooms < minRooms) return false
-    if (maxRooms !== null && l.rooms > maxRooms) return false
-    if (minSurface !== null && l.surface < minSurface) return false
-    if (maxSurface !== null && l.surface > maxSurface) return false
-    return filters.amenities.every((a) => l.amenities.includes(a))
-  })
+  const query = compileQuery(filters, scope)
+  return listings.filter((l) => evaluateListing(l, query).status !== 'NO_MATCH')
 }
 
 export function sortListings(listings: Listing[], sort: SortKey) {

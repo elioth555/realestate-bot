@@ -19,7 +19,7 @@ export type AmenityKey = (typeof AMENITY_KEYS)[number]
 
 export const AMENITY_LABELS: Record<AmenityKey, string> = {
   parking: 'Parking',
-  mamad: 'Mamad',
+  mamad: 'Mamad / Protected space',
   balcony: 'Balcony',
   elevator: 'Elevator',
   furnished: 'Furnished',
@@ -29,6 +29,25 @@ export const AMENITY_LABELS: Record<AmenityKey, string> = {
   gym: 'Gym',
   seaView: 'Sea view',
   petFriendly: 'Pet friendly',
+}
+
+export type TriState = 'yes' | 'no' | 'unknown'
+
+export type ProtectedSpaceType = 'mamad' | 'miklat' | 'mamak' | 'other'
+
+/** The broad "Mamad / Protected space" filter matches all of these; cards show the real type. */
+export const PROTECTED_SPACE_LABELS: Record<ProtectedSpaceType, string> = {
+  mamad: 'Mamad',
+  miklat: 'Miklat',
+  mamak: 'Mamak',
+  other: 'Protected space',
+}
+
+export type EntryDate = { kind: 'immediate' } | { kind: 'date'; value: string } | null
+
+export function amenityDisplayLabel(listing: Pick<Listing, 'protectedSpaceType'>, key: AmenityKey) {
+  if (key === 'mamad') return PROTECTED_SPACE_LABELS[listing.protectedSpaceType ?? 'other']
+  return AMENITY_LABELS[key]
 }
 
 export const SOURCE_LABELS: Record<Source, string> = {
@@ -50,7 +69,14 @@ export type Listing = {
   surface: number
   floor: number | null
   propertyType: string
+  /** Confirmed (YES) features only, for display. */
   amenities: AmenityKey[]
+  /** YES / NO / UNKNOWN per feature, used by the matching engine. */
+  features: Record<AmenityKey, TriState>
+  protectedSpaceType: ProtectedSpaceType | null
+  entryDate: EntryDate
+  /** Whether the numeric fields came from the source (false means the displayed 0 is a placeholder). */
+  known: { price: boolean; rooms: boolean; surface: boolean }
   phone: string
   source: Source
   url: string

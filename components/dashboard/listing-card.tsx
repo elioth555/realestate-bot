@@ -1,7 +1,7 @@
 import { BedDouble, Building, Clock, ExternalLink, Heart, MapPin, Phone, Ruler } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { AMENITY_LABELS, type Listing } from '@/lib/listings'
+import { amenityDisplayLabel, type Listing } from '@/lib/listings'
 import { formatPrice, formatPublished } from '@/lib/filters'
 import { AMENITY_ICONS } from './amenity-icons'
 import { ListingPhoto } from './listing-photo'
@@ -104,21 +104,22 @@ export function ListingCard({ listing, isFavorite, onToggleFavorite }: ListingCa
         <ul className="flex flex-wrap items-center gap-1.5" aria-label="Amenities">
           {visibleAmenities.map((key) => {
             const Icon = AMENITY_ICONS[key]
+            const label = amenityDisplayLabel(listing, key)
             return (
               <li
                 key={key}
-                title={AMENITY_LABELS[key]}
+                title={label}
                 className="flex size-7 items-center justify-center rounded-md bg-accent text-accent-foreground"
               >
                 <Icon className="size-3.5" aria-hidden="true" />
-                <span className="sr-only">{AMENITY_LABELS[key]}</span>
+                <span className="sr-only">{label}</span>
               </li>
             )
           })}
           {hiddenCount > 0 && (
             <li
               className="flex h-7 items-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground"
-              title={listing.amenities.slice(MAX_AMENITIES).map((k) => AMENITY_LABELS[k]).join(', ')}
+              title={listing.amenities.slice(MAX_AMENITIES).map((k) => amenityDisplayLabel(listing, k)).join(', ')}
             >
               {`+${hiddenCount}`}
             </li>

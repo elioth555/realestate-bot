@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import type { AmenityKey, Listing } from './listings'
+import { AMENITY_KEYS, type AmenityKey, type Listing } from './listings'
+import { deriveFeatures } from './matching/features'
 import {
   normalizeCity,
   normalizeDealType,
@@ -40,6 +41,8 @@ type PropertyRow = {
   gym: boolean | null
   sea_view: boolean | null
   pet_friendly: boolean | null
+  description?: string | null
+  available_from?: string | null
 }
 
 type PhotoRow = {
@@ -220,6 +223,16 @@ export async function fetchListings(): Promise<Listing[]> {
 
   return ((propertiesRes.data ?? []) as PropertyRow[]).map((row) => {
     const id = String(row.id)
+    const price = toNumber(row.price)
+    const rooms = toNumber(row.rooms)
+    const surface = toNumber(row.surface_m2)
+    // Raw columns are never rewritten; tri-state features are derived here on every load.
+    const derived = deriveFeatures({
+      flags: Object.fromEntries(AMENITY_COLUMNS.map(([key, column]) => [key, row[column] as boolean | null])),
+      protectedSpaceFlagType: 'mamad',
+      texts: [row.title, row.description],
+      availableFrom: row.available_from,
+    })
     return {
       id,
       title: row.title ?? '',
@@ -232,7 +245,15 @@ export async function fetchListings(): Promise<Listing[]> {
       surface: toNumber(row.surface_m2) ?? 0,
       floor: toNumber(row.floor),
       propertyType: normalizePropertyType(row.property_type),
-      amenities: AMENITY_COLUMNS.filter(([, column]) => row[column] === true).map(([key]) => key),
+      amenities: AMENITY_KEYS.filter((key) => derived.features[key] === 'yes'),
+      features: derived.features,
+      protectedSpaceType: derived.protectedSpaceType,
+      entryDate: derived.entryDate,
+      known: {
+        price: price !== null && price > 0,
+        rooms: rooms !== null && rooms > 0,
+        surface: surface !== null && surface > 0,
+      },
       phone: row.phone ?? '',
       source: normalizeSource(row.source),
       url: row.source_url ?? '',
