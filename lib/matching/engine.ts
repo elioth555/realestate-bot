@@ -78,8 +78,11 @@ export function evaluateListing(listing: Listing, query: CompiledQuery): MatchRe
 
   if (scope !== 'all') record('dealType', listing.dealType === scope)
   if (filters.city) record('city', sameNormalized(normalizeCity, listing.city, filters.city))
-  if (filters.neighborhood)
-    record('neighborhood', sameNormalized(normalizeNeighborhood, listing.neighborhood, filters.neighborhood))
+  if (filters.neighborhoods.length)
+    record(
+      'neighborhood',
+      filters.neighborhoods.some((n) => sameNormalized(normalizeNeighborhood, listing.neighborhood, n)),
+    )
   if (filters.propertyType)
     record('propertyType', sameNormalized(normalizePropertyType, listing.propertyType, filters.propertyType))
 

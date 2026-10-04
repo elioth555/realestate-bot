@@ -4,7 +4,8 @@ import { compileQuery, evaluateListing } from './matching/engine'
 
 export type Filters = {
   city: string | null
-  neighborhood: string | null
+  /** Any-of: a listing matches when it is in one of these neighborhoods. Empty = any neighborhood. */
+  neighborhoods: string[]
   minPrice: string
   maxPrice: string
   minRooms: string | null
@@ -29,7 +30,7 @@ export type SavedSearch = {
 
 export const EMPTY_FILTERS: Filters = {
   city: null,
-  neighborhood: null,
+  neighborhoods: [],
   minPrice: '',
   maxPrice: '',
   minRooms: null,
@@ -66,7 +67,7 @@ export function describeFilters(filters: Filters, scope: DealScope): string[] {
   const parts: string[] = []
   if (scope !== 'all') parts.push(scope === 'rent' ? 'Rent' : 'Sale')
   if (filters.city) parts.push(filters.city)
-  if (filters.neighborhood) parts.push(filters.neighborhood)
+  if (filters.neighborhoods.length) parts.push(filters.neighborhoods.join(', '))
   if (filters.propertyType) parts.push(filters.propertyType)
   if (filters.minPrice || filters.maxPrice) {
     parts.push(`₪${filters.minPrice || '0'} – ${filters.maxPrice ? `₪${filters.maxPrice}` : 'any'}`)
@@ -82,10 +83,9 @@ export function describeFilters(filters: Filters, scope: DealScope): string[] {
 }
 
 export function countActiveFilters(filters: Filters) {
-  let count = filters.amenities.length
+  let count = filters.amenities.length + (filters.neighborhoods.length > 0 ? 1 : 0)
   for (const key of [
     'city',
-    'neighborhood',
     'minPrice',
     'maxPrice',
     'minRooms',

@@ -42,6 +42,18 @@ function amenities(value: string | string[] | undefined): AmenityKey[] {
   return [...new Set(parts)] as AmenityKey[]
 }
 
+const MAX_NEIGHBORHOODS = 20
+
+/** `neighborhoods=A,B`; the legacy single `neighborhood=A` param is still accepted. */
+function neighborhoodList(params: RawSearchParams): string[] {
+  const raw = first(params.neighborhoods) || first(params.neighborhood)
+  const parts = raw
+    .split(',')
+    .map((n) => n.trim().slice(0, MAX_TEXT_LENGTH))
+    .filter(Boolean)
+  return [...new Set(parts)].slice(0, MAX_NEIGHBORHOODS)
+}
+
 export function parseDashboardParams(params: RawSearchParams): DashboardUrlState {
   const tab = first(params.tab) as TabKey
   const sort = first(params.sort) as SortKey
@@ -50,7 +62,7 @@ export function parseDashboardParams(params: RawSearchParams): DashboardUrlState
     sort: SORTS.includes(sort) ? sort : 'newest',
     filters: {
       city: text(params.city),
-      neighborhood: text(params.neighborhood),
+      neighborhoods: neighborhoodList(params),
       propertyType: text(params.propertyType),
       minPrice: digits(params.minPrice),
       maxPrice: digits(params.maxPrice),
@@ -68,7 +80,6 @@ export function serializeDashboardParams({ filters, tab, sort }: DashboardUrlSta
   if (tab !== 'all') params.set('tab', tab)
   const scalar = [
     'city',
-    'neighborhood',
     'propertyType',
     'minPrice',
     'maxPrice',
@@ -81,6 +92,7 @@ export function serializeDashboardParams({ filters, tab, sort }: DashboardUrlSta
     const value = filters[key]
     if (value) params.set(key, value)
   }
+  if (filters.neighborhoods.length) params.set('neighborhoods', filters.neighborhoods.join(','))
   if (filters.amenities.length) params.set('amenities', filters.amenities.join(','))
   if (sort !== 'newest') params.set('sort', sort)
   return params.toString()

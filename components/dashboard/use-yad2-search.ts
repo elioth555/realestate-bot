@@ -9,8 +9,9 @@ import { aliasKey, normalizeCity, normalizeNeighborhood } from '@/lib/normalize'
 const MINUTE = 60 * 1000
 const LONG_RUNNING_AFTER_MS = 10 * MINUTE
 const BACKGROUND_AFTER_MS = 60 * MINUTE
-// The Apify webhook imports into Supabase after the run ends; refresh twice to catch slower imports.
-const IMPORT_REFRESH_DELAYS_MS = [8000, 20000]
+// The Apify webhook imports into Supabase right after the run ends. Offsets from run completion:
+// refresh immediately, then keep checking until the data has changed and settled (or the last offset).
+const IMPORT_REFRESH_DELAYS_MS = [0, 2000, 5000, 10000, 20000]
 const ACTIVE_RUN_STORAGE_KEY = 'realestatebot:yad2-active-run'
 const RUN_ID_PATTERN = /^[A-Za-z0-9]{1,64}$/
 const MAX_STORED_RUNS = 20
@@ -26,7 +27,7 @@ const LONG_RUNNING_MESSAGE = 'Yad2 is taking longer than expected. The search is
 const BACKGROUND_MESSAGE = 'Yad2 is still processing this search. You can leave this page and come back later.'
 
 export function pollDelayFor(elapsedMs: number) {
-  if (elapsedMs < 2 * MINUTE) return 5000
+  if (elapsedMs < 2 * MINUTE) return 3000
   if (elapsedMs < LONG_RUNNING_AFTER_MS) return 15000
   if (elapsedMs < BACKGROUND_AFTER_MS) return 30000
   return 0
@@ -48,7 +49,7 @@ export type Yad2SearchState = {
 type SignatureFilters = {
   city: string
   transactionType: 'rent' | 'sale'
-  neighborhood: string
+  neighborhoods: string[]
   minRooms: string
   maxRooms: string
   minPrice: string
@@ -76,7 +77,10 @@ export function yad2SignatureFilters(input: Yad2SearchInput): SignatureFilters {
   return {
     city: input.city ? normalizeCity(input.city) : '',
     transactionType: input.transactionType,
-    neighborhood: input.neighborhood ? normalizeNeighborhood(input.neighborhood) : '',
+    // Order-independent: "Old North + Florentin" and "Florentin + Old North" are the same search.
+    neighborhoods: [...new Set((input.neighborhoods ?? []).map((n) => normalizeNeighborhood(n)).filter(Boolean))].sort(
+      (a, b) => aliasKey(a).localeCompare(aliasKey(b)),
+    ),
     minRooms: clean(input.minRooms),
     maxRooms: clean(input.maxRooms),
     minPrice: clean(input.minPrice),
@@ -89,12 +93,25 @@ export function yad2SearchSignature(input: Yad2SearchInput) {
   return JSON.stringify([
     aliasKey(f.city),
     f.transactionType,
-    aliasKey(f.neighborhood),
+    f.neighborhoods.map(aliasKey),
     f.minRooms,
     f.maxRooms,
     f.minPrice,
     f.maxPrice,
   ])
+}
+
+type FingerprintItem = { id: string; price: number; rooms: number; surface: number }
+
+/** Cheap content hash of the loaded listings, used to tell when the webhook import has landed and settled. */
+export function listingsFingerprint(items: readonly FingerprintItem[] | undefined) {
+  if (!items) return null
+  let hash = 5381
+  for (const l of items) {
+    const s = `${l.id}:${l.price}:${l.rooms}:${l.surface};`
+    for (let i = 0; i < s.length; i++) hash = ((hash << 5) + hash + s.charCodeAt(i)) | 0
+  }
+  return `${items.length}:${hash}`
 }
 
 function isValidRunId(value: unknown): value is string {
@@ -193,8 +210,16 @@ function searchesLabel(t: RunTally) {
  * The tracked runs keep polling and importing in the background whatever the dashboard shows;
  * the Searching state and the locked Search button only apply while `currentInput` matches that signature.
  */
-export function useYad2Search(currentInput: Yad2SearchInput, onImported: () => Promise<unknown[] | undefined>) {
+export function useYad2Search(
+  currentInput: Yad2SearchInput,
+  onImported: () => Promise<FingerprintItem[] | undefined>,
+  currentListings: readonly FingerprintItem[] | undefined,
+) {
   const [state, setState] = useState<Yad2SearchState>(IDLE)
+  // Listings snapshot taken when the search starts; a refresh that differs from it means the import landed.
+  const baselineRef = useRef<string | null>(null)
+  const listingsRef = useRef(currentListings)
+  listingsRef.current = currentListings
   const [trackedSignature, setTrackedSignature] = useState<string | null>(null)
   const [attempt, setAttempt] = useState<StartAttempt | null>(null)
   const [runIds, setRunIds] = useState<string[]>([])
@@ -267,42 +292,55 @@ export function useYad2Search(currentInput: Yad2SearchInput, onImported: () => P
       outcome: partial ? 'partial' : 'succeeded',
       runStatus: partial ? `PARTIAL · ${t.succeeded}/${t.total} succeeded` : 'SUCCEEDED',
       message: partial
-        ? `Importing new Yad2 listings… ${t.failed} of ${t.total} Yad2 searches did not complete.`
-        : 'Importing new Yad2 listings…',
+        ? `Yad2 finished · loading new listings… ${t.failed} of ${t.total} Yad2 searches did not complete.`
+        : 'Yad2 finished · loading new listings…',
       nextPollMs: null,
     }))
-    IMPORT_REFRESH_DELAYS_MS.forEach((delay, index) => {
+    const finishedAt = Date.now()
+    let previous: string | null = null
+
+    const refreshAt = (index: number) => {
+      const wait = Math.max(0, finishedAt + IMPORT_REFRESH_DELAYS_MS[index] - Date.now())
       const timer = setTimeout(async () => {
         let count: number | null = null
+        let fingerprint: string | null = null
         try {
           const refreshed = await onImported()
           count = refreshed?.length ?? null
+          fingerprint = listingsFingerprint(refreshed)
         } catch {
           // The listings query surfaces its own error state; keep the existing results visible.
         }
+        const changed = fingerprint !== null && baselineRef.current !== null && fingerprint !== baselineRef.current
+        const settled = changed && index > 0 && fingerprint === previous
+        previous = fingerprint
         console.info(`[yad2] refreshed properties after runs (${index + 1}/${IMPORT_REFRESH_DELAYS_MS.length})`, {
+          afterMs: Date.now() - finishedAt,
           propertyCount: count,
+          changed,
+          settled,
           tally: t,
         })
         // A newer search replaced this one; its listings are refreshed above, but it no longer owns the UI state.
         if (generation !== generationRef.current) return
-        if (index === IMPORT_REFRESH_DELAYS_MS.length - 1) {
-          clearTracking()
-          setTrackedSignature(null)
-          setState(IDLE)
-          const loaded =
-            count === null ? 'Listings refreshed with the latest import.' : `${count} properties loaded from Supabase.`
-          if (partial) {
-            toast.warning('Yad2 search completed partially', {
-              description: `${t.succeeded} of ${t.total} Yad2 searches succeeded; ${t.failed} failed. ${loaded}`,
-            })
-          } else {
-            toast.success('Yad2 search complete', { description: loaded })
-          }
+        const isLast = index === IMPORT_REFRESH_DELAYS_MS.length - 1
+        if (!settled && !isLast) return refreshAt(index + 1)
+        clearTracking()
+        setTrackedSignature(null)
+        setState(IDLE)
+        const loaded =
+          count === null ? 'Listings refreshed with the latest import.' : `${count} properties loaded from Supabase.`
+        if (partial) {
+          toast.warning('Yad2 search completed partially', {
+            description: `${t.succeeded} of ${t.total} Yad2 searches succeeded; ${t.failed} failed. ${loaded}`,
+          })
+        } else {
+          toast.success('Yad2 search complete', { description: loaded })
         }
-      }, delay)
+      }, wait)
       timersRef.current.push(timer)
-    })
+    }
+    refreshAt(0)
   }
 
   const pollKey = runIds.length > 0 ? ['yad2-runs', ...runIds] : null
@@ -436,6 +474,7 @@ export function useYad2Search(currentInput: Yad2SearchInput, onImported: () => P
     }
     generationRef.current += 1
     importingRef.current = false
+    baselineRef.current = listingsFingerprint(listingsRef.current)
     startedAtRef.current = Date.now()
     startFailuresRef.current = result.startFailures
     statusesRef.current = Object.fromEntries(result.runIds.map((id) => [id, result.status]))

@@ -17,9 +17,9 @@ export const ACTIVE_RUN_STATUSES = ['READY', 'RUNNING']
 export const TERMINAL_RUN_STATUSES = ['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT']
 
 const MAX_NEIGHBORHOODS = 20
-// The actor-compatible URL takes a single `neighborhood=<ID>`; no combined format has been confirmed yet.
-export const MULTI_NEIGHBORHOOD_UNSUPPORTED_NOTE =
-  'Multi-neighborhood scraping is not yet supported by the actor-compatible Yad2 URL format. Select a single neighborhood, or none for a Tel Aviv-wide search.'
+// The actor-compatible URL takes a single `neighborhood=<ID>`, so each Yad2 ID gets its own run.
+// Capped to keep one search from monopolising the Apify concurrency limit.
+const MAX_RUNS_PER_SEARCH = 6
 
 export type SearchCriteria = {
   cityKey: string
@@ -138,12 +138,14 @@ export function validateCriteria(
 
   if (errors.length > 0) return { ok: false, status: 400, errors }
   const neighborhoods = resolveYad2Neighborhoods(neighborhoodNames, neighborhoodIds)
-  // One dashboard neighborhood may expand to several Yad2 IDs (one run each); selecting several is still unsupported.
-  if (neighborhoods.applied.length > 1) {
+  // Each Yad2 ID is one run; an unsupported selection falls back to a single city-wide run (see buildSearchUrls).
+  if (neighborhoods.unsupported.length === 0 && neighborhoods.ids.length > MAX_RUNS_PER_SEARCH) {
     return {
       ok: false,
       status: 400,
-      errors: [`${MULTI_NEIGHBORHOOD_UNSUPPORTED_NOTE} Selected: ${neighborhoods.applied.join(', ')}.`],
+      errors: [
+        `These neighborhoods need ${neighborhoods.ids.length} Yad2 searches; at most ${MAX_RUNS_PER_SEARCH} can run at once. Select fewer neighborhoods, or none for a Tel Aviv-wide search.`,
+      ],
     }
   }
   return { ok: true, data: { cityKey, minRooms, maxRooms, maxPrice, neighborhoods } }
@@ -160,9 +162,13 @@ function buildUrlFor(criteria: SearchCriteria, neighborhoodId: string | null) {
   return url.toString()
 }
 
-/** One actor-compatible URL per Yad2 neighborhood ID (single `neighborhood=<ID>` each), or one city-wide URL. */
+/**
+ * One actor-compatible URL per Yad2 neighborhood ID (single `neighborhood=<ID>` each), or one city-wide URL.
+ * If any selected neighborhood has no confirmed ID, a city-wide run is used so it is not silently skipped;
+ * the local any-of neighborhood filter still narrows the results.
+ */
 export function buildSearchUrls(criteria: SearchCriteria) {
-  const ids = criteria.neighborhoods.ids
+  const ids = criteria.neighborhoods.unsupported.length > 0 ? [] : criteria.neighborhoods.ids
   const urls = ids.length > 0 ? ids.map((id) => buildUrlFor(criteria, id)) : [buildUrlFor(criteria, null)]
   return { urls, neighborhoodFilterApplied: ids.length > 0 }
 }

@@ -9,7 +9,7 @@ export type Yad2SearchInput = {
   maxRooms: string | null
   minPrice: string
   maxPrice: string
-  neighborhood: string | null
+  neighborhoods: string[]
 }
 
 export type StartYad2SearchResult =
@@ -59,7 +59,7 @@ export async function startYad2Search(input: Yad2SearchInput): Promise<StartYad2
     min_rooms: input.minRooms,
     max_rooms: input.maxRooms,
     max_price: input.maxPrice,
-    neighborhoods: input.neighborhood ? [input.neighborhood] : [],
+    neighborhoods: Array.isArray(input.neighborhoods) ? input.neighborhoods : [],
   })
   if (!validation.ok) return { ok: false, kind: 'invalid', message: validation.errors.join(' ') }
 

@@ -85,9 +85,9 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
     maxRooms: draft.maxRooms,
     minPrice: draft.minPrice,
     maxPrice: draft.maxPrice,
-    neighborhood: draft.neighborhood,
+    neighborhoods: draft.neighborhoods,
   }
-  const yad2 = useYad2Search(yad2Input, () => mutate())
+  const yad2 = useYad2Search(yad2Input, () => mutate(), data)
 
   useEffect(() => {
     console.info('[dashboard] restored filters from URL', {

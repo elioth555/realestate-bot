@@ -2,6 +2,7 @@
 
 import { BookmarkPlus, Loader2, RotateCcw, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -111,6 +112,72 @@ function RangeInputs({
   )
 }
 
+function NeighborhoodPicker({
+  options,
+  selected,
+  disabled,
+  onChange,
+}: {
+  options: readonly string[]
+  selected: string[]
+  disabled: boolean
+  onChange: (next: string[]) => void
+}) {
+  // Keep selections visible even if the current city index no longer lists them (e.g. restored from URL).
+  const all = [...new Set([...selected, ...options])]
+  const toggle = (name: string, checked: boolean) =>
+    onChange(checked ? [...selected, name] : selected.filter((n) => n !== name))
+
+  return (
+    <fieldset className="flex flex-col gap-1.5" disabled={disabled}>
+      <div className="flex items-center justify-between">
+        <legend className="text-xs font-medium text-muted-foreground">
+          Neighborhoods
+          {selected.length > 0 && <span className="ml-1 tabular-nums text-foreground">{`(${selected.length})`}</span>}
+        </legend>
+        {selected.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      {disabled ? (
+        <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">Select a city first</p>
+      ) : all.length === 0 ? (
+        <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+          No neighborhoods known for this city yet
+        </p>
+      ) : (
+        <ul className="flex max-h-44 flex-col gap-0.5 overflow-y-auto rounded-md border bg-background p-1.5">
+          {all.map((name) => {
+            const id = `hood-${name.replace(/\s+/g, '-')}`
+            return (
+              <li key={name}>
+                <label
+                  htmlFor={id}
+                  className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-muted"
+                >
+                  <Checkbox
+                    id={id}
+                    checked={selected.includes(name)}
+                    onCheckedChange={(checked) => toggle(name, checked === true)}
+                  />
+                  <span className="truncate">{name}</span>
+                </label>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      <p className="text-xs text-muted-foreground">Leave empty for any neighborhood.</p>
+    </fieldset>
+  )
+}
+
 export function FilterPanel({
   filters,
   cities,
@@ -154,16 +221,13 @@ export function FilterPanel({
           value={filters.city}
           placeholder="Any city"
           options={toOptions(Object.keys(cities), 'Any city')}
-          onValueChange={(v) => onChange({ ...filters, city: v, neighborhood: null })}
+          onValueChange={(v) => onChange({ ...filters, city: v, neighborhoods: [] })}
         />
-        <FieldSelect
-          id="neighborhood"
-          label="Neighborhood"
-          value={filters.neighborhood}
-          placeholder={filters.city ? 'Any neighborhood' : 'Select a city first'}
+        <NeighborhoodPicker
+          options={neighborhoods}
+          selected={filters.neighborhoods}
           disabled={!filters.city}
-          options={toOptions(neighborhoods, 'Any neighborhood')}
-          onValueChange={(v) => set('neighborhood', v)}
+          onChange={(next) => set('neighborhoods', next)}
         />
         <FieldSelect
           id="property-type"
