@@ -17,10 +17,10 @@ export const YAD2_NEIGHBORHOODS: Record<string, Yad2NeighborhoodEntry> = {
   Bavli: { aliases: ['Bavli', 'בבלי'], yad2Id: null },
   Jaffa: { aliases: ['Jaffa', 'Yafo', 'יפו'], yad2Id: null },
   'Old Jaffa': { aliases: ['Old Jaffa', 'יפו העתיקה'], yad2Id: null },
-  'Lev HaIr': { aliases: ['Lev HaIr', 'Lev Hair', 'לב העיר'], yad2Id: null },
+  'Lev HaIr': { aliases: ['Lev HaIr', 'Lev Hair', 'לב העיר'], yad2Id: '1520' },
 }
 
-// Confirmed valid on Yad2 (used in a working search URL). 848 is Neve Tzedek, 1521 is Kerem HaTeimanim; 1520 is not yet identified by name.
+// Confirmed valid on Yad2 (used in a working search URL). 848 is Neve Tzedek, 1521 is Kerem HaTeimanim, 1520 is Lev HaIr.
 export const YAD2_CONFIRMED_NEIGHBORHOOD_IDS: readonly string[] = ['1521', '848', '1520']
 
 export type Yad2NeighborhoodResolution = {
