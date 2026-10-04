@@ -78,7 +78,16 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
 
   const scope: DealScope = tab === 'rent' || tab === 'sale' ? tab : 'all'
 
-  const yad2 = useYad2Search(() => mutate())
+  const yad2Input = {
+    city: draft.city,
+    transactionType: scope === 'sale' ? ('sale' as const) : ('rent' as const),
+    minRooms: draft.minRooms,
+    maxRooms: draft.maxRooms,
+    minPrice: draft.minPrice,
+    maxPrice: draft.maxPrice,
+    neighborhood: draft.neighborhood,
+  }
+  const yad2 = useYad2Search(yad2Input, () => mutate())
 
   useEffect(() => {
     console.info('[dashboard] restored filters from URL', {
@@ -124,15 +133,7 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
     setApplied(draft)
     if (tab === 'saved') setTab('all')
     setFiltersOpen(false)
-    void yad2.start({
-      city: draft.city,
-      transactionType: scope === 'sale' ? 'sale' : 'rent',
-      minRooms: draft.minRooms,
-      maxRooms: draft.maxRooms,
-      minPrice: draft.minPrice,
-      maxPrice: draft.maxPrice,
-      neighborhood: draft.neighborhood,
-    })
+    void yad2.start(yad2Input)
   }
 
   const handleSave = () => {

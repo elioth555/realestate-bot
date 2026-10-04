@@ -24,12 +24,19 @@ export const CITY_ALIASES: AliasTable = {
   ],
 }
 
-// Only exact equivalents; Yad2 sub-areas (e.g. "הצפון הישן - החלק הדרומי") stay as-is.
+// Yad2 sub-area values are listed exactly as stored in Supabase (verified against live data);
+// other sub-areas stay as-is until confirmed.
 export const NEIGHBORHOOD_ALIASES: AliasTable = {
   Florentin: ['Florentin', 'פלורנטין'],
   'Neve Tzedek': ['Neve Tzedek', 'Neve Tsedek', 'נווה צדק'],
-  'Old North': ['Old North', 'הצפון הישן'],
-  'New North': ['New North', 'הצפון החדש'],
+  'Old North': ['Old North', 'הצפון הישן', 'הצפון הישן - החלק הצפוני', 'הצפון הישן - החלק הדרומי'],
+  'New North': [
+    'New North',
+    'הצפון החדש',
+    'הצפון החדש -החלק הצפוני',
+    'הצפון החדש - החלק הדרומי',
+    'הצפון החדש - כיכר המדינה',
+  ],
   'Kerem HaTeimanim': ['Kerem HaTeimanim', 'Kerem Hateimanim', 'כרם התימנים'],
   Jaffa: ['Jaffa', 'Yafo', 'יפו'],
   'Old Jaffa': ['Old Jaffa', 'יפו העתיקה'],
