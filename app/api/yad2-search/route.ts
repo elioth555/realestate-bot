@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { startYad2Run, validateCriteria } from '@/lib/yad2-search'
+import { buildSearchUrl, startYad2Run, validateCriteria } from '@/lib/yad2-search'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -50,19 +50,27 @@ export async function POST(request: Request) {
     )
   }
 
+  const { neighborhoods } = criteria
+  const neighborhoodFilterApplied = buildSearchUrl(criteria).neighborhoodFilterApplied
+  const requestedNeighborhoods = neighborhoods.applied.length + neighborhoods.unsupported.length > 0
+  const notes = [
+    ...neighborhoods.notes,
+    ...(requestedNeighborhoods && !neighborhoodFilterApplied
+      ? ['No selected neighborhood has a confirmed Yad2 ID, so this is a Tel Aviv-wide search.']
+      : []),
+  ]
+
   return NextResponse.json(
     {
       success: true,
       run_id: run.runId,
       status: run.status,
       search_url: run.searchUrl,
-      neighborhood_filter_applied: false,
-      ...(criteria.neighborhoodIds.length > 0
-        ? {
-            neighborhood_filter_note:
-              'neighborhood_ids were received but are not applied: the old Yad2 URL format has no verified neighborhood parameter.',
-          }
-        : {}),
+      neighborhood_filter_applied: neighborhoodFilterApplied,
+      applied_neighborhoods: neighborhoods.applied,
+      applied_neighborhood_ids: neighborhoods.ids,
+      unsupported_neighborhoods: neighborhoods.unsupported,
+      ...(notes.length > 0 ? { neighborhood_filter_note: notes.join(' ') } : {}),
       actor_input: run.actorInput,
     },
     { status: 201, headers: { 'Cache-Control': 'no-store' } },

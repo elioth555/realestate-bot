@@ -43,13 +43,15 @@ export async function startYad2Search(input: Yad2SearchInput): Promise<StartYad2
     return { ok: false, kind: 'unsupported', message: 'Live Yad2 search supports rentals only.' }
   }
 
-  // min_price and neighborhood are filtered locally after import; the endpoint does not apply them on Yad2.
+  // min_price is filtered locally after import. Neighborhoods are sent to Yad2 only when they have a confirmed ID;
+  // otherwise the search stays Tel Aviv-wide and the local filter still narrows the results.
   const validation = validateCriteria({
     city,
     transaction_type: 'rent',
     min_rooms: input.minRooms,
     max_rooms: input.maxRooms,
     max_price: input.maxPrice,
+    neighborhoods: input.neighborhood ? [input.neighborhood] : [],
   })
   if (!validation.ok) return { ok: false, kind: 'invalid', message: validation.errors.join(' ') }
 

@@ -1,3 +1,5 @@
+import { resolveYad2Neighborhoods, type Yad2NeighborhoodResolution } from './yad2-neighborhoods'
+
 const MAX_PAGES_PER_SEARCH = 1
 const MAX_REQUESTS_PER_CRAWL = 50
 const ACTOR_ID_PATTERN = /^[A-Za-z0-9_.-]+(~[A-Za-z0-9_.-]+)?$/
@@ -14,12 +16,16 @@ const SUPPORTED_TRANSACTION_TYPES = ['rent']
 export const ACTIVE_RUN_STATUSES = ['READY', 'RUNNING']
 export const TERMINAL_RUN_STATUSES = ['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT']
 
+// Yad2 area URL format that accepts `multiNeighborhood` (confirmed from a working Tel Aviv search).
+const NEIGHBORHOOD_SEARCH_PATH: Record<string, string> = { 'tel aviv': 'rent/tel-aviv-area' }
+const MAX_NEIGHBORHOODS = 20
+
 export type SearchCriteria = {
   cityKey: string
   minRooms: number | null
   maxRooms: number | null
   maxPrice: number | null
-  neighborhoodIds: string[]
+  neighborhoods: Yad2NeighborhoodResolution
 }
 
 export type ActorInput = {
@@ -103,18 +109,38 @@ export function validateCriteria(
     }
   }
 
+  let neighborhoodNames: string[] = []
+  if (body.neighborhoods !== undefined && body.neighborhoods !== null) {
+    if (!Array.isArray(body.neighborhoods) || body.neighborhoods.some((n) => typeof n !== 'string')) {
+      errors.push('neighborhoods must be an array of strings.')
+    } else {
+      neighborhoodNames = body.neighborhoods.map((n: string) => n.trim()).filter(Boolean)
+      if (neighborhoodNames.some((n) => n.length > 80)) errors.push('Each neighborhood must be 80 characters or less.')
+    }
+  }
+  if (neighborhoodNames.length + neighborhoodIds.length > MAX_NEIGHBORHOODS) {
+    errors.push(`At most ${MAX_NEIGHBORHOODS} neighborhoods can be requested.`)
+  }
+
   if (errors.length > 0) return { ok: false, status: 400, errors }
-  return { ok: true, data: { cityKey, minRooms, maxRooms, maxPrice, neighborhoodIds } }
+  const neighborhoods = resolveYad2Neighborhoods(neighborhoodNames, neighborhoodIds)
+  return { ok: true, data: { cityKey, minRooms, maxRooms, maxPrice, neighborhoods } }
 }
 
-function buildSearchUrl(criteria: SearchCriteria) {
-  const config = CITY_CONFIG[criteria.cityKey]
-  const url = new URL(`https://www.yad2.co.il/realestate/${config.path}`)
-  for (const [key, value] of Object.entries(config.params)) url.searchParams.set(key, value)
+export function buildSearchUrl(criteria: SearchCriteria) {
+  const neighborhoodIds = criteria.neighborhoods.ids
+  const neighborhoodPath = NEIGHBORHOOD_SEARCH_PATH[criteria.cityKey]
+  const useNeighborhoods = neighborhoodIds.length > 0 && Boolean(neighborhoodPath)
+
+  const url = new URL(`https://www.yad2.co.il/realestate/${useNeighborhoods ? neighborhoodPath : CITY_CONFIG[criteria.cityKey].path}`)
+  if (!useNeighborhoods) {
+    for (const [key, value] of Object.entries(CITY_CONFIG[criteria.cityKey].params)) url.searchParams.set(key, value)
+  }
   if (criteria.minRooms !== null) url.searchParams.set('minRooms', String(criteria.minRooms))
   if (criteria.maxRooms !== null) url.searchParams.set('maxRooms', String(criteria.maxRooms))
   if (criteria.maxPrice !== null) url.searchParams.set('maxPrice', String(Math.round(criteria.maxPrice)))
-  return url.toString()
+  if (useNeighborhoods) url.searchParams.set('multiNeighborhood', neighborhoodIds.join(','))
+  return { url: url.toString(), neighborhoodFilterApplied: useNeighborhoods }
 }
 
 function readApifyConfig() {
@@ -164,7 +190,7 @@ export async function startYad2Run(
   const config = readApifyConfig()
   if (!config.ok) return { ok: false, httpStatus: 500, error: config.error }
 
-  const searchUrl = buildSearchUrl(criteria)
+  const { url: searchUrl } = buildSearchUrl(criteria)
   const actorInput: ActorInput = {
     start_urls: [{ url: searchUrl }],
     maxPagesPerSearch: MAX_PAGES_PER_SEARCH,
