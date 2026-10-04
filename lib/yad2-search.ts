@@ -24,8 +24,8 @@ export type SearchCriteria = {
 
 export type ActorInput = {
   start_urls: { url: string }[]
-  max_pages_per_search: number
-  max_requests_per_crawl: number
+  maxPagesPerSearch: number
+  maxRequestsPerCrawl: number
 }
 
 export type StartRunResult =
@@ -167,8 +167,8 @@ export async function startYad2Run(
   const searchUrl = buildSearchUrl(criteria)
   const actorInput: ActorInput = {
     start_urls: [{ url: searchUrl }],
-    max_pages_per_search: MAX_PAGES_PER_SEARCH,
-    max_requests_per_crawl: MAX_REQUESTS_PER_CRAWL,
+    maxPagesPerSearch: MAX_PAGES_PER_SEARCH,
+    maxRequestsPerCrawl: MAX_REQUESTS_PER_CRAWL,
   }
 
   if (reuseActiveRun) {
