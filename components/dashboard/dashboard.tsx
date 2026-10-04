@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 import { toast } from 'sonner'
 import useSWR from 'swr'
@@ -21,6 +21,11 @@ import {
   type SavedSearch,
   type SortKey,
 } from '@/lib/filters'
+import {
+  serializeDashboardParams,
+  type DashboardUrlState,
+  type TabKey,
+} from '@/lib/dashboard-url'
 import { FilterPanel } from './filter-panel'
 import { ListingsGrid } from './listings-grid'
 import { ListingsError, ListingsLoading } from './listings-status'
@@ -28,8 +33,6 @@ import { SavedSearches } from './saved-searches'
 import { StatsBar } from './stats-bar'
 import { useYad2Search } from './use-yad2-search'
 import { Yad2SearchStatus } from './yad2-search-status'
-
-type TabKey = 'all' | 'rent' | 'sale' | 'saved' | 'favorites'
 
 const SORT_OPTIONS: { label: string; value: SortKey }[] = [
   { label: 'Newest first', value: 'newest' },
@@ -57,7 +60,7 @@ const INITIAL_SAVED: SavedSearch[] = [
 
 const NO_LISTINGS: Listing[] = []
 
-export function Dashboard() {
+export function Dashboard({ initialState }: { initialState: DashboardUrlState }) {
   const { data, error, isLoading, mutate } = useSWR('supabase:properties', fetchListings, {
     revalidateOnFocus: false,
   })
@@ -65,10 +68,10 @@ export function Dashboard() {
   const cities = useMemo(() => buildCityIndex(listings), [listings])
   const propertyTypes = useMemo(() => collectPropertyTypes(listings), [listings])
 
-  const [tab, setTab] = useState<TabKey>('all')
-  const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS)
-  const [applied, setApplied] = useState<Filters>(EMPTY_FILTERS)
-  const [sort, setSort] = useState<SortKey>('newest')
+  const [tab, setTab] = useState<TabKey>(initialState.tab)
+  const [draft, setDraft] = useState<Filters>(initialState.filters)
+  const [applied, setApplied] = useState<Filters>(initialState.filters)
+  const [sort, setSort] = useState<SortKey>(initialState.sort)
   const [favorites, setFavorites] = useState<Set<string>>(() => new Set())
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>(INITIAL_SAVED)
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -76,6 +79,21 @@ export function Dashboard() {
   const scope: DealScope = tab === 'rent' || tab === 'sale' ? tab : 'all'
 
   const yad2 = useYad2Search(() => mutate())
+
+  useEffect(() => {
+    console.info('[dashboard] restored filters from URL', {
+      tab: initialState.tab,
+      sort: initialState.sort,
+      activeFilters: countActiveFilters(initialState.filters),
+      filters: initialState.filters,
+    })
+  }, [initialState])
+
+  useEffect(() => {
+    const query = serializeDashboardParams({ filters: applied, tab, sort })
+    if (query === window.location.search.replace(/^\?/, '')) return
+    window.history.replaceState(window.history.state, '', query ? `?${query}` : window.location.pathname)
+  }, [applied, tab, sort])
 
   const results = useMemo(() => {
     const base = tab === 'favorites' ? listings.filter((l) => favorites.has(l.id)) : listings
