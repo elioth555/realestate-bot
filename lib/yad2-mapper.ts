@@ -54,6 +54,20 @@ function inferCondition(value: unknown): Pick<PropertyInput, 'renovated' | 'new_
   return { renovated: null, new_building: null }
 }
 
+// properties.available_from is a DATE column, so only real calendar dates are stored.
+// "Immediate" entry can't be represented there; the matcher still picks it up from the description.
+function toEntranceDate(value: unknown): string | null {
+  const str = cleanString(value)
+  if (!str) return null
+  const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  const dmy = str.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/)
+  const [y, m, d] = iso ? [iso[1], iso[2], iso[3]] : dmy ? [dmy[3], dmy[2], dmy[1]] : []
+  if (!y) return null
+  const date = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+  const parsed = new Date(`${date}T00:00:00Z`)
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().startsWith(date) ? date : null
+}
+
 type ParsedLocation = { city: string | null; neighborhood: string | null; street: string | null }
 
 function pickString(obj: Record<string, unknown>, keys: string[]) {
@@ -108,8 +122,16 @@ function resolveSourceUrl(item: Yad2Item): string | null {
 
 export function mapYad2Item(item: Yad2Item): PropertyInput {
   const location = parseLocation(item.location)
+  const description = cleanString(item.description)
+  const availableFrom = toEntranceDate(item.entrance_date)
 
   return {
+    // Only set when present so a re-import never blanks out existing text or dates.
+    ...(description ? { description } : {}),
+    ...(availableFrom ? { available_from: availableFrom } : {}),
+    balcony: toBoolean(item.balcony),
+    furnished: toBoolean(item.furnished),
+    garden: toBoolean(item.garden),
     source: 'yad2',
     transaction_type: 'rent',
     property_type: 'apartment',

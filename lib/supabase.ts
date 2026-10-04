@@ -226,9 +226,12 @@ export async function fetchListings(): Promise<Listing[]> {
     const price = toNumber(row.price)
     const rooms = toNumber(row.rooms)
     const surface = toNumber(row.surface_m2)
+    const source = normalizeSource(row.source)
     // Raw columns are never rewritten; tri-state features are derived here on every load.
+    // Yad2 stores unticked checkboxes as false, which means "not declared" rather than "does not exist".
     const derived = deriveFeatures({
       flags: Object.fromEntries(AMENITY_COLUMNS.map(([key, column]) => [key, row[column] as boolean | null])),
+      flagSemantics: source === 'yad2' ? 'positive-only' : 'explicit',
       protectedSpaceFlagType: 'mamad',
       texts: [row.title, row.description],
       availableFrom: row.available_from,
@@ -255,7 +258,7 @@ export async function fetchListings(): Promise<Listing[]> {
         surface: surface !== null && surface > 0,
       },
       phone: row.phone ?? '',
-      source: normalizeSource(row.source),
+      source,
       url: row.source_url ?? '',
       publishedMinutesAgo: minutesSince(row.published_at, row.created_at),
       photos: photosByProperty.get(id) ?? [],

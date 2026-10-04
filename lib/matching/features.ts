@@ -6,8 +6,14 @@ import { FEATURE_RULES, IMMEDIATE_ENTRY, PROTECTED_SPACE_RULES, normalizeText, s
  * the derivation and matching rules below never look at the source.
  */
 export type FeatureEvidence = {
-  /** Structured flags from the source. true = YES, false = explicit NO, null/undefined = not stated. */
+  /** Structured flags from the source. true = YES, null/undefined = not stated; false depends on `flagSemantics`. */
   flags: Partial<Record<AmenityKey, boolean | null | undefined>>
+  /**
+   * How a structured `false` should be read.
+   * - 'explicit' (default): false is a deliberate NO (e.g. manual import).
+   * - 'positive-only': false only means "not ticked" and is UNKNOWN (Yad2 checkboxes). NO then requires text evidence.
+   */
+  flagSemantics?: 'explicit' | 'positive-only'
   /** What a structured `mamad` flag physically represents for this source (Yad2 "safe_room" is a ממ"ד). */
   protectedSpaceFlagType?: ProtectedSpaceType
   /** Free text (title, description, …). Negations found here override structured flags. */
@@ -21,9 +27,9 @@ export type DerivedFeatures = {
   entryDate: EntryDate
 }
 
-function fromFlag(value: boolean | null | undefined): TriState {
+function fromFlag(value: boolean | null | undefined, semantics: FeatureEvidence['flagSemantics']): TriState {
   if (value === true) return 'yes'
-  if (value === false) return 'no'
+  if (value === false && semantics !== 'positive-only') return 'no'
   return 'unknown'
 }
 
@@ -74,7 +80,7 @@ export function deriveFeatures(evidence: FeatureEvidence): DerivedFeatures {
 
   for (const key of AMENITY_KEYS) {
     if (key === 'mamad') continue
-    features[key] = combineStates(fromFlag(evidence.flags[key]), textState(key, text))
+    features[key] = combineStates(fromFlag(evidence.flags[key], evidence.flagSemantics), textState(key, text))
   }
   // A terrace is a balcony for search purposes; it never overrides an explicit "no balcony".
   if (features.balcony === 'unknown' && features.terrace === 'yes') features.balcony = 'yes'
@@ -90,7 +96,7 @@ export function deriveFeatures(evidence: FeatureEvidence): DerivedFeatures {
   } else if (fromText.state === 'no') {
     features.mamad = 'no'
   } else {
-    features.mamad = fromFlag(flag)
+    features.mamad = fromFlag(flag, evidence.flagSemantics)
     if (flag === true) protectedSpaceType = flagType
   }
 
