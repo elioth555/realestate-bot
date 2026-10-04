@@ -13,14 +13,14 @@ export const YAD2_NEIGHBORHOODS: Record<string, Yad2NeighborhoodEntry> = {
   'New North': { aliases: ['New North', 'הצפון החדש'], yad2Id: null },
   'Neve Tzedek': { aliases: ['Neve Tzedek', 'Neve Tsedek', 'נווה צדק'], yad2Id: '848' },
   Florentin: { aliases: ['Florentin', 'פלורנטין'], yad2Id: null },
-  'Kerem HaTeimanim': { aliases: ['Kerem HaTeimanim', 'Kerem Hateimanim', 'כרם התימנים'], yad2Id: null },
+  'Kerem HaTeimanim': { aliases: ['Kerem HaTeimanim', 'Kerem Hateimanim', 'כרם התימנים'], yad2Id: '1521' },
   Bavli: { aliases: ['Bavli', 'בבלי'], yad2Id: null },
   Jaffa: { aliases: ['Jaffa', 'Yafo', 'יפו'], yad2Id: null },
   'Old Jaffa': { aliases: ['Old Jaffa', 'יפו העתיקה'], yad2Id: null },
   'Lev HaIr': { aliases: ['Lev HaIr', 'Lev Hair', 'לב העיר'], yad2Id: null },
 }
 
-// Confirmed valid on Yad2 (used in a working search URL). 848 is Neve Tzedek; 1521 and 1520 are not yet identified by name.
+// Confirmed valid on Yad2 (used in a working search URL). 848 is Neve Tzedek, 1521 is Kerem HaTeimanim; 1520 is not yet identified by name.
 export const YAD2_CONFIRMED_NEIGHBORHOOD_IDS: readonly string[] = ['1521', '848', '1520']
 
 export type Yad2NeighborhoodResolution = {
