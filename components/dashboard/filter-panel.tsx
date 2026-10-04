@@ -130,11 +130,12 @@ function NeighborhoodPicker({
 
   return (
     <fieldset className="flex flex-col gap-1.5" disabled={disabled}>
+      <legend className="sr-only">Neighborhoods</legend>
       <div className="flex items-center justify-between">
-        <legend className="text-xs font-medium text-muted-foreground">
+        <span aria-hidden="true" className="text-xs font-medium text-muted-foreground">
           Neighborhoods
           {selected.length > 0 && <span className="ml-1 tabular-nums text-foreground">{`(${selected.length})`}</span>}
-        </legend>
+        </span>
         {selected.length > 0 && (
           <button
             type="button"
