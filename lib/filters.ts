@@ -1,5 +1,6 @@
 import type { AmenityKey, DealType, Listing } from './listings'
 import { AMENITY_LABELS } from './listings'
+import { normalizeCity, normalizeNeighborhood, normalizePropertyType, sameNormalized } from './normalize'
 
 export type Filters = {
   city: string | null
@@ -57,9 +58,11 @@ export function filterListings(listings: Listing[], filters: Filters, scope: Dea
 
   return listings.filter((l) => {
     if (scope !== 'all' && l.dealType !== scope) return false
-    if (filters.city && l.city !== filters.city) return false
-    if (filters.neighborhood && l.neighborhood !== filters.neighborhood) return false
-    if (filters.propertyType && l.propertyType !== filters.propertyType) return false
+    if (filters.city && !sameNormalized(normalizeCity, l.city, filters.city)) return false
+    if (filters.neighborhood && !sameNormalized(normalizeNeighborhood, l.neighborhood, filters.neighborhood))
+      return false
+    if (filters.propertyType && !sameNormalized(normalizePropertyType, l.propertyType, filters.propertyType))
+      return false
     if (minPrice !== null && l.price < minPrice) return false
     if (maxPrice !== null && l.price > maxPrice) return false
     if (minRooms !== null && l.rooms < minRooms) return false

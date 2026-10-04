@@ -1,5 +1,12 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import type { AmenityKey, DealType, Listing, Source } from './listings'
+import type { AmenityKey, Listing } from './listings'
+import {
+  normalizeCity,
+  normalizeDealType,
+  normalizeNeighborhood,
+  normalizePropertyType,
+  normalizeSource,
+} from './normalize'
 
 const PHOTOS_TABLE = 'property_photos'
 const LEGACY_PHOTOS_TABLE = 'proprety_photos'
@@ -110,18 +117,6 @@ function toNumber(value: number | string | null | undefined) {
   return Number.isFinite(n) ? n : null
 }
 
-function normalizeDealType(value: string | null): DealType {
-  const v = (value ?? '').toLowerCase()
-  return v.includes('rent') || v.includes('השכר') ? 'rent' : 'sale'
-}
-
-function normalizeSource(value: string | null): Source {
-  const v = (value ?? '').toLowerCase()
-  if (v.includes('facebook') || v === 'fb' || v.includes('פייסבוק')) return 'facebook'
-  if (v.includes('yad2') || v.includes('יד2') || v.includes('יד 2')) return 'yad2'
-  if (v.includes('madlan') || v.includes('מדלן')) return 'madlan'
-  return 'other'
-}
 
 function minutesSince(...dates: (string | null)[]) {
   for (const d of dates) {
@@ -230,13 +225,13 @@ export async function fetchListings(): Promise<Listing[]> {
       title: row.title ?? '',
       dealType: normalizeDealType(row.transaction_type),
       price: toNumber(row.price) ?? 0,
-      city: row.city ?? '',
-      neighborhood: row.neighborhood ?? '',
+      city: normalizeCity(row.city),
+      neighborhood: normalizeNeighborhood(row.neighborhood),
       street: row.street ?? '',
       rooms: toNumber(row.rooms) ?? 0,
       surface: toNumber(row.surface_m2) ?? 0,
       floor: toNumber(row.floor),
-      propertyType: row.property_type ?? '',
+      propertyType: normalizePropertyType(row.property_type),
       amenities: AMENITY_COLUMNS.filter(([, column]) => row[column] === true).map(([key]) => key),
       phone: row.phone ?? '',
       source: normalizeSource(row.source),
