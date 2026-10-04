@@ -1,7 +1,7 @@
 import { aliasKey } from './normalize'
 
 /**
- * Yad2 `multiNeighborhood` IDs for Tel Aviv.
+ * Yad2 `neighborhood` IDs for Tel Aviv.
  *
  * Only add a `yad2Id` once it has been confirmed against a real Yad2 search URL for that exact
  * neighborhood. Unconfirmed entries stay `null` and are reported as unsupported instead of guessed.
@@ -12,16 +12,16 @@ export const YAD2_NEIGHBORHOODS: Record<string, Yad2NeighborhoodEntry> = {
   'Old North': { aliases: ['Old North', 'הצפון הישן'], yad2Id: null },
   'New North': { aliases: ['New North', 'הצפון החדש'], yad2Id: null },
   'Neve Tzedek': { aliases: ['Neve Tzedek', 'Neve Tsedek', 'נווה צדק'], yad2Id: '848' },
-  Florentin: { aliases: ['Florentin', 'פלורנטין'], yad2Id: null },
+  Florentin: { aliases: ['Florentin', 'פלורנטין'], yad2Id: '205' },
   'Kerem HaTeimanim': { aliases: ['Kerem HaTeimanim', 'Kerem Hateimanim', 'כרם התימנים'], yad2Id: '1521' },
-  Bavli: { aliases: ['Bavli', 'בבלי'], yad2Id: null },
+  Bavli: { aliases: ['Bavli', 'בבלי'], yad2Id: '1518' },
   Jaffa: { aliases: ['Jaffa', 'Yafo', 'יפו'], yad2Id: null },
   'Old Jaffa': { aliases: ['Old Jaffa', 'יפו העתיקה'], yad2Id: null },
   'Lev HaIr': { aliases: ['Lev HaIr', 'Lev Hair', 'לב העיר'], yad2Id: '1520' },
 }
 
-// Confirmed valid on Yad2 (used in a working search URL). 848 is Neve Tzedek, 1521 is Kerem HaTeimanim, 1520 is Lev HaIr.
-export const YAD2_CONFIRMED_NEIGHBORHOOD_IDS: readonly string[] = ['1521', '848', '1520']
+// Confirmed on live Yad2 pages / Apify runs: 848 Neve Tzedek, 1521 Kerem HaTeimanim, 1520 Lev HaIr, 205 Florentin, 1518 Bavli.
+export const YAD2_CONFIRMED_NEIGHBORHOOD_IDS: readonly string[] = ['1521', '848', '1520', '205', '1518']
 
 export type Yad2NeighborhoodResolution = {
   ids: string[]

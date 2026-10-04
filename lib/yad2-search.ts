@@ -16,9 +16,10 @@ const SUPPORTED_TRANSACTION_TYPES = ['rent']
 export const ACTIVE_RUN_STATUSES = ['READY', 'RUNNING']
 export const TERMINAL_RUN_STATUSES = ['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT']
 
-// Yad2 area URL format that accepts `multiNeighborhood` (confirmed from a working Tel Aviv search).
-const NEIGHBORHOOD_SEARCH_PATH: Record<string, string> = { 'tel aviv': 'rent/tel-aviv-area' }
 const MAX_NEIGHBORHOODS = 20
+// The actor-compatible URL takes a single `neighborhood=<ID>`; no combined format has been confirmed yet.
+export const MULTI_NEIGHBORHOOD_UNSUPPORTED_NOTE =
+  'Multi-neighborhood scraping is not yet supported by the actor-compatible Yad2 URL format. Select a single neighborhood, or none for a Tel Aviv-wide search.'
 
 export type SearchCriteria = {
   cityKey: string
@@ -124,23 +125,27 @@ export function validateCriteria(
 
   if (errors.length > 0) return { ok: false, status: 400, errors }
   const neighborhoods = resolveYad2Neighborhoods(neighborhoodNames, neighborhoodIds)
+  if (neighborhoods.ids.length > 1) {
+    return {
+      ok: false,
+      status: 400,
+      errors: [`${MULTI_NEIGHBORHOOD_UNSUPPORTED_NOTE} Selected: ${neighborhoods.applied.join(', ')}.`],
+    }
+  }
   return { ok: true, data: { cityKey, minRooms, maxRooms, maxPrice, neighborhoods } }
 }
 
 export function buildSearchUrl(criteria: SearchCriteria) {
-  const neighborhoodIds = criteria.neighborhoods.ids
-  const neighborhoodPath = NEIGHBORHOOD_SEARCH_PATH[criteria.cityKey]
-  const useNeighborhoods = neighborhoodIds.length > 0 && Boolean(neighborhoodPath)
+  const city = CITY_CONFIG[criteria.cityKey]
+  const neighborhoodId = criteria.neighborhoods.ids.length === 1 ? criteria.neighborhoods.ids[0] : null
 
-  const url = new URL(`https://www.yad2.co.il/realestate/${useNeighborhoods ? neighborhoodPath : CITY_CONFIG[criteria.cityKey].path}`)
-  if (!useNeighborhoods) {
-    for (const [key, value] of Object.entries(CITY_CONFIG[criteria.cityKey].params)) url.searchParams.set(key, value)
-  }
+  const url = new URL(`https://www.yad2.co.il/realestate/${city.path}`)
+  for (const [key, value] of Object.entries(city.params)) url.searchParams.set(key, value)
+  if (neighborhoodId) url.searchParams.set('neighborhood', neighborhoodId)
   if (criteria.minRooms !== null) url.searchParams.set('minRooms', String(criteria.minRooms))
   if (criteria.maxRooms !== null) url.searchParams.set('maxRooms', String(criteria.maxRooms))
   if (criteria.maxPrice !== null) url.searchParams.set('maxPrice', String(Math.round(criteria.maxPrice)))
-  if (useNeighborhoods) url.searchParams.set('multiNeighborhood', neighborhoodIds.join(','))
-  return { url: url.toString(), neighborhoodFilterApplied: useNeighborhoods }
+  return { url: url.toString(), neighborhoodFilterApplied: neighborhoodId !== null }
 }
 
 function readApifyConfig() {
