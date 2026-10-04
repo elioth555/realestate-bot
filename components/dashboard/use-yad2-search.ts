@@ -5,26 +5,40 @@ import { toast } from 'sonner'
 import useSWR from 'swr'
 import { checkYad2Run, startYad2Search, type Yad2SearchInput } from '@/app/actions/yad2'
 
-export const POLL_INTERVAL_MS = 5000
-const MAX_WATCH_MS = 10 * 60 * 1000
-const MAX_CONSECUTIVE_POLL_ERRORS = 3
+const MINUTE = 60 * 1000
+const LONG_RUNNING_AFTER_MS = 10 * MINUTE
+const BACKGROUND_AFTER_MS = 60 * MINUTE
 // The Apify webhook imports into Supabase after the run ends; refresh twice to catch slower imports.
 const IMPORT_REFRESH_DELAYS_MS = [8000, 20000]
 const ACTIVE_RUN_STORAGE_KEY = 'realestatebot:yad2-active-run'
 
 const FAILED_STATUSES = new Set(['FAILED', 'ABORTED', 'TIMED-OUT'])
+// Permanent answers from the status action; retrying them would lock Search forever.
+const UNKNOWN_RUN_ERRORS = new Set(['Run not found.', 'Invalid run id.'])
 
-export type Yad2SearchPhase = 'idle' | 'starting' | 'running' | 'importing' | 'failed'
+const LONG_RUNNING_MESSAGE = 'Yad2 is taking longer than expected. The search is still running in the background.'
+const BACKGROUND_MESSAGE = 'Yad2 is still processing this search. You can leave this page and come back later.'
+
+export function pollDelayFor(elapsedMs: number) {
+  if (elapsedMs < 2 * MINUTE) return 5000
+  if (elapsedMs < LONG_RUNNING_AFTER_MS) return 15000
+  if (elapsedMs < BACKGROUND_AFTER_MS) return 30000
+  return 0
+}
+
+export type Yad2SearchPhase = 'idle' | 'starting' | 'running' | 'background' | 'importing' | 'failed'
 
 export type Yad2SearchState = {
   phase: Yad2SearchPhase
   runStatus: string | null
   message: string | null
+  startedAt: number | null
+  nextPollMs: number | null
 }
 
 type StoredRun = { runId: string; startedAt: number }
 
-const IDLE: Yad2SearchState = { phase: 'idle', runStatus: null, message: null }
+const IDLE: Yad2SearchState = { phase: 'idle', runStatus: null, message: null, startedAt: null, nextPollMs: null }
 
 function readStoredRun(): StoredRun | null {
   try {
@@ -48,13 +62,16 @@ function writeStoredRun(run: StoredRun | null) {
   }
 }
 
+function activeMessage(elapsedMs: number, fallback: string) {
+  return elapsedMs >= LONG_RUNNING_AFTER_MS ? LONG_RUNNING_MESSAGE : fallback
+}
+
 export function useYad2Search(onImported: () => Promise<unknown[] | undefined>) {
   const [state, setState] = useState<Yad2SearchState>(IDLE)
   const [runId, setRunId] = useState<string | null>(null)
   const busyRef = useRef(false)
   const importingRef = useRef(false)
   const startedAtRef = useRef(0)
-  const pollErrorsRef = useRef(0)
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([])
 
   useEffect(() => {
@@ -68,17 +85,18 @@ export function useYad2Search(onImported: () => Promise<unknown[] | undefined>) 
       console.info('[yad2] no active run to restore')
       return
     }
-    if (Date.now() - stored.startedAt > MAX_WATCH_MS) {
-      console.info('[yad2] stored run is older than the watch window; discarding', stored)
-      writeStoredRun(null)
-      return
-    }
-    console.info('[yad2] restored run_id after reload; resuming status checks', stored)
+    const elapsed = Date.now() - stored.startedAt
+    console.info('[yad2] restored run_id after reload; checking real Apify status', { ...stored, elapsedMs: elapsed })
     busyRef.current = true
     startedAtRef.current = stored.startedAt
-    pollErrorsRef.current = 0
     setRunId(stored.runId)
-    setState({ phase: 'running', runStatus: null, message: 'Resuming your Yad2 search…' })
+    setState({
+      phase: 'running',
+      runStatus: null,
+      message: activeMessage(elapsed, 'Resuming your Yad2 search…'),
+      startedAt: stored.startedAt,
+      nextPollMs: pollDelayFor(elapsed),
+    })
   }, [])
 
   const fail = (message: string) => {
@@ -86,7 +104,7 @@ export function useYad2Search(onImported: () => Promise<unknown[] | undefined>) 
     importingRef.current = false
     writeStoredRun(null)
     setRunId(null)
-    setState({ phase: 'failed', runStatus: null, message })
+    setState({ ...IDLE, phase: 'failed', message })
   }
 
   const finishImport = () => {
@@ -94,7 +112,13 @@ export function useYad2Search(onImported: () => Promise<unknown[] | undefined>) 
     importingRef.current = true
     // Stop polling but keep the stored run_id until the re-fetch finishes, so a reload mid-import resumes it.
     setRunId(null)
-    setState({ phase: 'importing', runStatus: 'SUCCEEDED', message: 'Importing new Yad2 listings…' })
+    setState((prev) => ({
+      ...prev,
+      phase: 'importing',
+      runStatus: 'SUCCEEDED',
+      message: 'Importing new Yad2 listings…',
+      nextPollMs: null,
+    }))
     IMPORT_REFRESH_DELAYS_MS.forEach((delay, index) => {
       const timer = setTimeout(async () => {
         let count: number | null = null
@@ -123,35 +147,60 @@ export function useYad2Search(onImported: () => Promise<unknown[] | undefined>) 
   }
 
   useSWR(runId ? ['yad2-run', runId] : null, ([, id]) => checkYad2Run(id), {
-    refreshInterval: POLL_INTERVAL_MS,
-    revalidateOnFocus: false,
+    // Re-evaluated after every check, so the interval backs off as the run ages and stops at 60 minutes.
+    refreshInterval: () => pollDelayFor(Date.now() - startedAtRef.current),
+    // Once background polling stops, returning to the tab still re-checks the real status.
+    revalidateOnFocus: state.phase === 'background',
     dedupingInterval: 0,
     onSuccess: (result) => {
+      const elapsed = Date.now() - startedAtRef.current
+      const nextPollMs = pollDelayFor(elapsed)
+
       if (!result.ok) {
-        pollErrorsRef.current += 1
-        if (pollErrorsRef.current >= MAX_CONSECUTIVE_POLL_ERRORS) fail(`Could not check the Yad2 search: ${result.message}`)
+        if (UNKNOWN_RUN_ERRORS.has(result.message)) {
+          return fail('The saved Yad2 search could not be found on Apify. You can start a new search.')
+        }
+        // A failed status request is not a failed run; keep the run_id and try again on the next tick.
+        console.warn('[yad2] status check failed; will retry', { message: result.message, nextPollMs })
+        setState((prev) => ({ ...prev, nextPollMs, message: 'Having trouble reaching Yad2. Retrying…' }))
         return
       }
-      pollErrorsRef.current = 0
+
+      console.info('[yad2] run status', { status: result.status, elapsedMs: elapsed, nextPollMs })
       if (result.status === 'SUCCEEDED') return finishImport()
       if (FAILED_STATUSES.has(result.status)) {
         return fail(`The Yad2 search ended with status ${result.status}. Your current listings are unchanged.`)
       }
-      if (Date.now() - startedAtRef.current > MAX_WATCH_MS) {
-        return fail('The Yad2 search is taking longer than 10 minutes. New listings will appear once it finishes.')
+
+      if (elapsed >= BACKGROUND_AFTER_MS) {
+        setState((prev) => ({
+          ...prev,
+          phase: 'background',
+          runStatus: result.status,
+          message: BACKGROUND_MESSAGE,
+          nextPollMs: null,
+        }))
+        return
       }
-      setState((prev) => ({ ...prev, runStatus: result.status, message: 'Searching Yad2 for new listings…' }))
+      setState((prev) => ({
+        ...prev,
+        phase: 'running',
+        runStatus: result.status,
+        message: activeMessage(elapsed, 'Searching Yad2 for new listings…'),
+        nextPollMs,
+      }))
     },
     onError: () => {
-      pollErrorsRef.current += 1
-      if (pollErrorsRef.current >= MAX_CONSECUTIVE_POLL_ERRORS) fail('Lost connection while checking the Yad2 search.')
+      const nextPollMs = pollDelayFor(Date.now() - startedAtRef.current)
+      console.warn('[yad2] status request errored; will retry', { nextPollMs })
+      setState((prev) => ({ ...prev, nextPollMs, message: 'Having trouble reaching Yad2. Retrying…' }))
     },
   })
 
   const start = async (input: Yad2SearchInput) => {
     if (busyRef.current) return
     busyRef.current = true
-    setState({ phase: 'starting', runStatus: null, message: 'Starting Yad2 search…' })
+    setState({ ...IDLE, phase: 'starting', message: 'Starting Yad2 search…' })
 
     let result: Awaited<ReturnType<typeof startYad2Search>>
     try {
@@ -171,7 +220,6 @@ export function useYad2Search(onImported: () => Promise<unknown[] | undefined>) 
     }
 
     startedAtRef.current = Date.now()
-    pollErrorsRef.current = 0
     writeStoredRun({ runId: result.runId, startedAt: startedAtRef.current })
     console.info('[yad2] run started; run_id persisted', { runId: result.runId, reused: result.reusedActiveRun })
     setRunId(result.runId)
@@ -181,6 +229,8 @@ export function useYad2Search(onImported: () => Promise<unknown[] | undefined>) 
       message: result.reusedActiveRun
         ? 'A Yad2 search was already running. Waiting for it to finish…'
         : 'Searching Yad2 for new listings…',
+      startedAt: startedAtRef.current,
+      nextPollMs: pollDelayFor(0),
     })
   }
 
