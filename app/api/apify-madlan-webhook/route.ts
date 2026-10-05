@@ -25,24 +25,28 @@ function buildAuthDiagnostics(authHeader: string, envSecret: string) {
   const hasEdgeWhitespace = (value: string) => value.length > 0 && value !== value.trim()
   const startsWithBearer = authHeader.startsWith('Bearer ')
   const rawToken = startsWithBearer ? authHeader.slice(7) : ''
-  const token = rawToken.trim()
-  const yad2Secret = process.env.APIFY_WEBHOOK_SECRET
+  const trimmedToken = rawToken.trim()
+
+  const firstSpace = authHeader.indexOf(' ')
+  const scheme = firstSpace === -1 ? authHeader : authHeader.slice(0, firstSpace)
+  const authSchemeDetected = authHeader.length === 0 ? 'none' : scheme === 'Bearer' ? 'Bearer' : 'other'
+  const splitParts = firstSpace === -1 ? [authHeader] : [scheme, authHeader.slice(firstSpace + 1)]
 
   return {
     envExists: envSecret.length > 0,
     envSecretLength: envSecret.length,
     authHeaderExists: authHeader.length > 0,
     authHeaderLength: authHeader.length,
+    authSchemeDetected,
+    authSchemeCaseInsensitiveBearer: scheme.toLowerCase() === 'bearer',
+    headerContainsSpace: firstSpace !== -1,
+    splitOnFirstSpaceGivesTwoParts: splitParts.length === 2 && splitParts[0].length > 0 && splitParts[1].length > 0,
     startsWithBearer,
-    startsWithBearerCaseInsensitive: /^bearer\s/i.test(authHeader),
-    tokenLength: token.length,
-    exactMatch: token.length > 0 && tokensMatch(token, envSecret),
-    trimmedMatch: token.length > 0 && tokensMatch(token, envSecret.trim()),
-    envHadWhitespace: hasEdgeWhitespace(envSecret),
-    tokenHadWhitespace: hasEdgeWhitespace(rawToken),
-    tokenWrappedInQuotes: /^(["']).*\1$/.test(token),
-    envWrappedInQuotes: /^(["']).*\1$/.test(envSecret.trim()),
-    tokenMatchesYad2Secret: Boolean(yad2Secret) && token.length > 0 && tokensMatch(token, yad2Secret!.trim()),
+    extractedTokenLength: rawToken.length,
+    exactMatch: rawToken.length > 0 && tokensMatch(rawToken, envSecret),
+    trimmedMatch: trimmedToken.length > 0 && tokensMatch(trimmedToken, envSecret.trim()),
+    envHadLeadingOrTrailingWhitespace: hasEdgeWhitespace(envSecret),
+    tokenHadLeadingOrTrailingWhitespace: hasEdgeWhitespace(rawToken),
   }
 }
 
