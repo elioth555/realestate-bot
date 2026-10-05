@@ -5,6 +5,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const ROOT = new URL('../../', import.meta.url)
 
 export async function resolve(specifier, context, nextResolve) {
+  // Next ships CJS entry files without an exports map, so bare ESM imports need the explicit extension.
+  if (specifier === 'next/server') return nextResolve('next/server.js', context)
   let url
   if (specifier.startsWith('@/')) url = new URL(specifier.slice(2), ROOT)
   else if ((specifier.startsWith('./') || specifier.startsWith('../')) && context.parentURL) {
