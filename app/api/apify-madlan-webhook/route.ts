@@ -20,6 +20,32 @@ function tokensMatch(provided: string, expected: string) {
   return timingSafeEqual(a, b)
 }
 
+// TEMPORARY: safe auth diagnostics. Exposes only booleans and lengths, never secret characters.
+function buildAuthDiagnostics(authHeader: string, envSecret: string) {
+  const hasEdgeWhitespace = (value: string) => value.length > 0 && value !== value.trim()
+  const startsWithBearer = authHeader.startsWith('Bearer ')
+  const rawToken = startsWithBearer ? authHeader.slice(7) : ''
+  const token = rawToken.trim()
+  const yad2Secret = process.env.APIFY_WEBHOOK_SECRET
+
+  return {
+    envExists: envSecret.length > 0,
+    envSecretLength: envSecret.length,
+    authHeaderExists: authHeader.length > 0,
+    authHeaderLength: authHeader.length,
+    startsWithBearer,
+    startsWithBearerCaseInsensitive: /^bearer\s/i.test(authHeader),
+    tokenLength: token.length,
+    exactMatch: token.length > 0 && tokensMatch(token, envSecret),
+    trimmedMatch: token.length > 0 && tokensMatch(token, envSecret.trim()),
+    envHadWhitespace: hasEdgeWhitespace(envSecret),
+    tokenHadWhitespace: hasEdgeWhitespace(rawToken),
+    tokenWrappedInQuotes: /^(["']).*\1$/.test(token),
+    envWrappedInQuotes: /^(["']).*\1$/.test(envSecret.trim()),
+    tokenMatchesYad2Secret: Boolean(yad2Secret) && token.length > 0 && tokensMatch(token, yad2Secret!.trim()),
+  }
+}
+
 function extractRunInfo(payload: unknown) {
   if (!payload || typeof payload !== 'object') return { datasetId: null, eventType: null, status: null }
   const body = payload as Record<string, unknown>
@@ -56,7 +82,10 @@ export async function POST(request: Request) {
   const authHeader = request.headers.get('authorization') ?? ''
   const providedSecret = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
   if (!providedSecret || !tokensMatch(providedSecret, expectedSecret)) {
-    return jsonError(401, 'Unauthorized.')
+    // TEMPORARY auth diagnostics: booleans and lengths only, never secret characters. Remove once resolved.
+    const authDiagnostics = buildAuthDiagnostics(authHeader, expectedSecret)
+    console.warn('apify-madlan-webhook: unauthorized', authDiagnostics)
+    return NextResponse.json({ success: false, error: 'Unauthorized.', authDiagnostics }, { status: 401 })
   }
 
   const apifyToken = process.env.APIFY_API_TOKEN?.trim()
