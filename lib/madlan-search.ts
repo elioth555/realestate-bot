@@ -225,6 +225,48 @@ async function launchRun(config: { token: string; actorId: string }, actorInput:
   return { ok: true as const, run: { runId: result.data.id, status: result.data.status ?? 'READY', actorInput } }
 }
 
+const RUN_ID_PATTERN = /^[A-Za-z0-9]{8,32}$/
+
+export type MadlanRunStatusResult =
+  | { ok: true; runId: string; status: string; finishedAt: string | null }
+  | { ok: false; error: string }
+
+async function apifyGetJson<T>(path: string, token: string) {
+  const response = await fetch(`${APIFY_API}${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(15000),
+  })
+  return { ok: response.ok, status: response.status, body: (await response.json().catch(() => null)) as T | null }
+}
+
+/** Read-only status of a Madlan run. Runs of any other actor (e.g. Yad2) are reported as not found. */
+export async function getMadlanRunStatus(runId: string): Promise<MadlanRunStatusResult> {
+  if (typeof runId !== 'string' || !RUN_ID_PATTERN.test(runId)) return { ok: false, error: 'Invalid run id.' }
+  const config = readApifyConfig()
+  if (!config.ok) return { ok: false, error: config.error }
+  try {
+    const [run, actor] = await Promise.all([
+      apifyGetJson<{ data?: { status?: string; finishedAt?: string | null; actId?: string } }>(
+        `/actor-runs/${encodeURIComponent(runId)}`,
+        config.token,
+      ),
+      apifyGetJson<{ data?: { id?: string } }>(`/acts/${encodeURIComponent(config.actorId)}`, config.token),
+    ])
+    if (!run.ok || !run.body?.data?.status) {
+      return { ok: false, error: run.status === 404 ? 'Run not found.' : `Apify returned HTTP ${run.status}.` }
+    }
+    const actorInternalId = actor.ok ? actor.body?.data?.id : undefined
+    if (actorInternalId && run.body.data.actId && run.body.data.actId !== actorInternalId) {
+      return { ok: false, error: 'Run not found.' }
+    }
+    return { ok: true, runId, status: run.body.data.status, finishedAt: run.body.data.finishedAt ?? null }
+  } catch (error) {
+    console.error('madlan-search: could not read run status', error)
+    return { ok: false, error: 'Could not reach the Apify API.' }
+  }
+}
+
 /** Starts one Madlan actor run per actor input. Results arrive via /api/apify-madlan-webhook. */
 export async function startMadlanRuns(criteria: MadlanCriteria): Promise<MadlanStartResult> {
   const config = readApifyConfig()

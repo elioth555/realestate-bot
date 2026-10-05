@@ -27,9 +27,12 @@ export function Yad2SearchStatus({
   state,
   onDismiss,
   matchCount,
+  label = 'Yad2',
 }: {
   state: Yad2SearchState
   onDismiss: () => void
+  /** Source name used in the partial-failure note. */
+  label?: string
   /** Listings matching the filters currently on screen, so a zero-new update never reads as "nothing found". */
   matchCount: number
 }) {
@@ -58,7 +61,7 @@ export function Yad2SearchStatus({
         <p className="flex-1 leading-relaxed text-foreground">
           {`${state.message} Showing ${matchCount} existing match${matchCount === 1 ? '' : 'es'}.`}
           {partial && state.summary
-            ? ` ${state.summary.failed} of ${state.summary.total} Yad2 searches did not complete.`
+            ? ` ${state.summary.failed} of ${state.summary.total} ${label} searches did not complete.`
             : ''}
         </p>
         <Button variant="ghost" size="icon" className="-my-1 size-7" onClick={onDismiss} aria-label="Dismiss message">

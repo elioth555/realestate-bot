@@ -3,7 +3,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import useSWR from 'swr'
-import { checkYad2Run, startYad2Search, type Yad2RunStatus, type Yad2SearchInput } from '@/app/actions/yad2'
+import {
+  checkYad2Run,
+  startYad2Search,
+  type StartYad2SearchResult,
+  type Yad2RunStatus,
+  type Yad2SearchInput,
+} from '@/app/actions/yad2'
 import { aliasKey, normalizeCity, normalizeNeighborhood } from '@/lib/normalize'
 
 const MINUTE = 60 * 1000
@@ -12,7 +18,6 @@ const BACKGROUND_AFTER_MS = 60 * MINUTE
 // The Apify webhook imports into Supabase right after the run ends. Offsets from run completion:
 // refresh immediately, then keep checking until the data has changed and settled (or the last offset).
 const IMPORT_REFRESH_DELAYS_MS = [0, 2000, 5000, 10000, 20000]
-const ACTIVE_RUN_STORAGE_KEY = 'realestatebot:yad2-active-run'
 const RUN_ID_PATTERN = /^[A-Za-z0-9]{1,64}$/
 const MAX_STORED_RUNS = 20
 
@@ -23,14 +28,43 @@ const UNKNOWN_RUN_ERRORS = new Set(['Run not found.', 'Invalid run id.'])
 // Local marker for a run Apify no longer knows about; counted as failed.
 const NOT_FOUND = 'NOT-FOUND'
 
-const LONG_RUNNING_MESSAGE = 'Yad2 is taking longer than expected. The search is still running in the background.'
-const BACKGROUND_MESSAGE = 'Yad2 is still processing this search. You can leave this page and come back later.'
-
 export function pollDelayFor(elapsedMs: number) {
   if (elapsedMs < 2 * MINUTE) return 3000
   if (elapsedMs < LONG_RUNNING_AFTER_MS) return 15000
   if (elapsedMs < BACKGROUND_AFTER_MS) return 30000
   return 0
+}
+
+export type RefreshSource = 'yad2' | 'madlan'
+/** Dashboard filters sent to a source refresh. `amenities` is only used by sources that filter on them (Madlan). */
+export type RefreshInput = Yad2SearchInput & { amenities?: string[] }
+export type RunStatusResult = Yad2RunStatus
+export type StartRefreshResult = StartYad2SearchResult
+
+/** Everything that differs between sources. Each source gets its own storage key, run IDs and UI state. */
+export type SourceRefreshConfig = {
+  source: RefreshSource
+  label: string
+  storageKey: string
+  start: (input: RefreshInput) => Promise<StartRefreshResult>
+  check: (runId: string) => Promise<RunStatusResult>
+}
+
+export const YAD2_REFRESH: SourceRefreshConfig = {
+  source: 'yad2',
+  label: 'Yad2',
+  storageKey: 'realestatebot:yad2-active-run',
+  start: (input) =>
+    startYad2Search({
+      city: input.city,
+      transactionType: input.transactionType,
+      minRooms: input.minRooms,
+      maxRooms: input.maxRooms,
+      minPrice: input.minPrice,
+      maxPrice: input.maxPrice,
+      neighborhoods: input.neighborhoods,
+    }),
+  check: checkYad2Run,
 }
 
 export type Yad2SearchPhase = 'idle' | 'running' | 'background' | 'importing' | 'done' | 'failed'
@@ -64,6 +98,7 @@ type SignatureFilters = {
   maxRooms: string
   minPrice: string
   maxPrice: string
+  amenities?: string[]
 }
 
 type StoredRuns = { runIds: string[]; startedAt: number; searchSignature: string; filters: SignatureFilters }
@@ -82,8 +117,8 @@ const IDLE: Yad2SearchState = {
 const clean = (value: string | null | undefined) => (value ?? '').trim()
 
 /** Canonical filters, so "Old North" and "הצפון הישן" (or "Tel Aviv" / "תל אביב יפו") share one signature. */
-export function yad2SignatureFilters(input: Yad2SearchInput): SignatureFilters {
-  return {
+export function yad2SignatureFilters(input: RefreshInput): SignatureFilters {
+  const filters: SignatureFilters = {
     city: input.city ? normalizeCity(input.city) : '',
     transactionType: input.transactionType,
     // Order-independent: "Old North + Florentin" and "Florentin + Old North" are the same search.
@@ -95,11 +130,13 @@ export function yad2SignatureFilters(input: Yad2SearchInput): SignatureFilters {
     minPrice: clean(input.minPrice),
     maxPrice: clean(input.maxPrice),
   }
+  if (input.amenities && input.amenities.length > 0) filters.amenities = [...new Set(input.amenities)].sort()
+  return filters
 }
 
-export function yad2SearchSignature(input: Yad2SearchInput) {
+export function yad2SearchSignature(input: RefreshInput) {
   const f = yad2SignatureFilters(input)
-  return JSON.stringify([
+  const parts: unknown[] = [
     aliasKey(f.city),
     f.transactionType,
     f.neighborhoods.map(aliasKey),
@@ -107,7 +144,10 @@ export function yad2SearchSignature(input: Yad2SearchInput) {
     f.maxRooms,
     f.minPrice,
     f.maxPrice,
-  ])
+  ]
+  // Appended only when present, so Yad2 signatures (no amenities) stay identical to previously saved ones.
+  if (f.amenities) parts.push(f.amenities)
+  return JSON.stringify(parts)
 }
 
 type FingerprintItem = {
@@ -115,6 +155,7 @@ type FingerprintItem = {
   price: number
   rooms: number
   surface: number
+  source?: string
   features?: Record<string, string>
 }
 
@@ -153,21 +194,26 @@ export function diffListings(before: ListingsSnapshot | null, after: readonly Fi
   return { newCount, updatedCount }
 }
 
+/** Only this source's listings, so a concurrent refresh of another source never looks like "our" import landing. */
+function ofSource(items: readonly FingerprintItem[] | undefined, source: RefreshSource) {
+  return items?.filter((l) => l.source === source)
+}
+
 function isValidRunId(value: unknown): value is string {
   return typeof value === 'string' && RUN_ID_PATTERN.test(value)
 }
 
-function clearStoredRuns() {
+function clearStoredRuns(key: string) {
   try {
-    window.localStorage.removeItem(ACTIVE_RUN_STORAGE_KEY)
+    window.localStorage.removeItem(key)
   } catch {
     // Storage unavailable; nothing to clear.
   }
 }
 
-function readStoredRuns(): StoredRuns | null {
+function readStoredRuns(key: string, logTag: string): StoredRuns | null {
   try {
-    const raw = window.localStorage.getItem(ACTIVE_RUN_STORAGE_KEY)
+    const raw = window.localStorage.getItem(key)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<Record<keyof StoredRuns | 'runId', unknown>>
     const runIds = Array.isArray(parsed.runIds)
@@ -182,8 +228,8 @@ function readStoredRuns(): StoredRuns | null {
       runIds.length > 0
     if (!valid) {
       // Legacy `{ runId }` / `{ runIds }` state has no signature, so it cannot be tied to any filters.
-      console.info('[yad2] discarding legacy or invalid saved search state')
-      clearStoredRuns()
+      console.info(`[${logTag}] discarding legacy or invalid saved search state`)
+      clearStoredRuns(key)
       return null
     }
     return {
@@ -193,21 +239,17 @@ function readStoredRuns(): StoredRuns | null {
       filters: parsed.filters as SignatureFilters,
     }
   } catch {
-    clearStoredRuns()
+    clearStoredRuns(key)
     return null
   }
 }
 
-function writeStoredRuns(runs: StoredRuns) {
+function writeStoredRuns(key: string, runs: StoredRuns) {
   try {
-    window.localStorage.setItem(ACTIVE_RUN_STORAGE_KEY, JSON.stringify(runs))
+    window.localStorage.setItem(key, JSON.stringify(runs))
   } catch {
     // Storage can be unavailable (private mode); the runs still complete, they just won't resume after reload.
   }
-}
-
-function activeMessage(elapsedMs: number, fallback: string) {
-  return elapsedMs >= LONG_RUNNING_AFTER_MS ? LONG_RUNNING_MESSAGE : fallback
 }
 
 function isFailed(status: string | null | undefined) {
@@ -240,28 +282,33 @@ function summarize(t: RunTally, fallback: string | null) {
   return `${done}/${t.total} done${t.failed > 0 ? ` · ${t.failed} failed` : ''}`
 }
 
-function searchesLabel(t: RunTally) {
-  return t.total > 1 ? `${t.total} Yad2 searches` : 'Yad2 search'
-}
-
-function updatingMessage(t: RunTally) {
-  const done = t.succeeded + t.failed
-  return t.total > 1
-    ? `Updating Yad2 in background — ${done}/${t.total} searches completed`
-    : 'Updating Yad2 in background…'
-}
-
 /**
- * Tracks at most one background Yad2 update (its Apify runs). The update never blocks the dashboard:
- * existing Supabase listings stay filterable while it runs, and its status is shown whatever filters are active.
+ * Tracks at most one background update (its Apify runs) for ONE source. Each source uses its own hook instance,
+ * storage key, run IDs and state, so Yad2 and Madlan never touch each other's status. The update never blocks the
+ * dashboard: existing Supabase listings stay filterable while it runs.
  */
-export function useYad2Search(
-  currentInput: Yad2SearchInput,
+export function useSourceRefresh(
+  config: SourceRefreshConfig,
+  currentInput: RefreshInput,
   onImported: () => Promise<FingerprintItem[] | undefined>,
   currentListings: readonly FingerprintItem[] | undefined,
 ) {
+  const { source, label, storageKey } = config
+  const logTag = source
+  const longRunningMessage = `${label} is taking longer than expected. The search is still running in the background.`
+  const backgroundMessage = `${label} is still processing this search. You can leave this page and come back later.`
+  const activeMessage = (elapsedMs: number, fallback: string) =>
+    elapsedMs >= LONG_RUNNING_AFTER_MS ? longRunningMessage : fallback
+  const searchesLabel = (t: RunTally) => (t.total > 1 ? `${t.total} ${label} searches` : `${label} search`)
+  const updatingMessage = (t: RunTally) => {
+    const done = t.succeeded + t.failed
+    return t.total > 1
+      ? `Updating ${label} in background — ${done}/${t.total} searches completed`
+      : `Updating ${label} in background…`
+  }
+
   const [state, setState] = useState<Yad2SearchState>(IDLE)
-  // Listings at the moment the update started: the fingerprint tells when the import landed, the snapshot gives new/updated counts.
+  // This source's listings when the update started: the fingerprint tells when the import landed, the snapshot gives new/updated counts.
   const baselineRef = useRef<string | null>(null)
   const baselineSnapshotRef = useRef<ReturnType<typeof snapshotListings>>(null)
   const listingsRef = useRef(currentListings)
@@ -286,13 +333,13 @@ export function useYad2Search(
   }, [])
 
   useEffect(() => {
-    const stored = readStoredRuns()
+    const stored = readStoredRuns(storageKey, logTag)
     if (!stored) {
-      console.info('[yad2] no active search to restore')
+      console.info(`[${logTag}] no active search to restore`)
       return
     }
     const elapsed = Date.now() - stored.startedAt
-    console.info('[yad2] restored saved search; checking real Apify status', {
+    console.info(`[${logTag}] restored saved search; checking real Apify status`, {
       runIds: stored.runIds,
       filters: stored.filters,
       elapsedMs: elapsed,
@@ -306,25 +353,28 @@ export function useYad2Search(
       phase: 'running',
       outcome: 'running',
       runStatus: null,
-      message: activeMessage(elapsed, 'Resuming background Yad2 update…'),
+      message: activeMessage(elapsed, `Resuming background ${label} update…`),
       startedAt: stored.startedAt,
       nextPollMs: pollDelayFor(elapsed),
       summary: null,
     })
+    // Restore once on mount; config is a module constant.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // After a reload the pre-update listings are gone; the first load we see is the best available baseline.
   useEffect(() => {
     if (trackedSignature === null || baselineSnapshotRef.current || !currentListings) return
-    baselineRef.current = listingsFingerprint(currentListings)
-    baselineSnapshotRef.current = snapshotListings(currentListings)
-  }, [trackedSignature, currentListings])
+    const own = ofSource(currentListings, source)
+    baselineRef.current = listingsFingerprint(own)
+    baselineSnapshotRef.current = snapshotListings(own)
+  }, [trackedSignature, currentListings, source])
 
   const clearTracking = () => {
     importingRef.current = false
     statusesRef.current = {}
     startFailuresRef.current = 0
-    clearStoredRuns()
+    clearStoredRuns(storageKey)
     setRunIds([])
   }
 
@@ -346,8 +396,8 @@ export function useYad2Search(
       outcome: partial ? 'partial' : 'succeeded',
       runStatus: partial ? `PARTIAL · ${t.succeeded}/${t.total} succeeded` : 'SUCCEEDED',
       message: partial
-        ? `Yad2 update finished · loading new listings… ${t.failed} of ${t.total} Yad2 searches did not complete.`
-        : 'Yad2 update finished · loading new listings…',
+        ? `${label} update finished · loading new listings… ${t.failed} of ${t.total} ${label} searches did not complete.`
+        : `${label} update finished · loading new listings…`,
       nextPollMs: null,
     }))
     const finishedAt = Date.now()
@@ -363,14 +413,14 @@ export function useYad2Search(
           const refreshed = await onImported()
           if (refreshed) latest = refreshed
           count = refreshed?.length ?? null
-          fingerprint = listingsFingerprint(refreshed)
+          fingerprint = listingsFingerprint(ofSource(refreshed, source))
         } catch {
           // The listings query surfaces its own error state; keep the existing results visible.
         }
         const changed = fingerprint !== null && baselineRef.current !== null && fingerprint !== baselineRef.current
         const settled = changed && index > 0 && fingerprint === previous
         previous = fingerprint
-        console.info(`[yad2] refreshed properties after runs (${index + 1}/${IMPORT_REFRESH_DELAYS_MS.length})`, {
+        console.info(`[${logTag}] refreshed properties after runs (${index + 1}/${IMPORT_REFRESH_DELAYS_MS.length})`, {
           afterMs: Date.now() - finishedAt,
           propertyCount: count,
           changed,
@@ -383,7 +433,7 @@ export function useYad2Search(
         if (!settled && !isLast) return refreshAt(index + 1)
         clearTracking()
         setTrackedSignature(null)
-        const { newCount, updatedCount } = diffListings(baselineSnapshotRef.current, latest)
+        const { newCount, updatedCount } = diffListings(baselineSnapshotRef.current, ofSource(latest, source))
         baselineRef.current = null
         baselineSnapshotRef.current = null
         const summary: Yad2UpdateSummary = { newCount, updatedCount, succeeded: t.succeeded, failed: t.failed, total: t.total }
@@ -391,21 +441,21 @@ export function useYad2Search(
           newCount === null
             ? 'Listings refreshed with the latest import.'
             : `${newCount} new listing${newCount === 1 ? '' : 's'}, ${updatedCount} updated.`
-        console.info('[yad2] background update complete', { ...summary, propertyCount: count })
+        console.info(`[${logTag}] background update complete`, { ...summary, propertyCount: count })
         setState({
           ...IDLE,
           phase: 'done',
           outcome: partial ? 'partial' : 'succeeded',
           runStatus: partial ? `PARTIAL · ${t.succeeded}/${t.total} succeeded` : 'SUCCEEDED',
-          message: `Yad2 update complete. ${changes}`,
+          message: `${label} update complete. ${changes}`,
           summary,
         })
         if (partial) {
-          toast.warning('Yad2 update completed partially', {
-            description: `${t.succeeded} of ${t.total} Yad2 searches succeeded; ${t.failed} failed. ${changes}`,
+          toast.warning(`${label} update completed partially`, {
+            description: `${t.succeeded} of ${t.total} ${label} searches succeeded; ${t.failed} failed. ${changes}`,
           })
         } else {
-          toast.success('Yad2 update complete', { description: changes })
+          toast.success(`${label} update complete`, { description: changes })
         }
       }, wait)
       timersRef.current.push(timer)
@@ -413,7 +463,7 @@ export function useYad2Search(
     refreshAt(0)
   }
 
-  const pollKey = runIds.length > 0 ? ['yad2-runs', ...runIds] : null
+  const pollKey = runIds.length > 0 ? [`${source}-runs`, ...runIds] : null
 
   useSWR(
     pollKey,
@@ -421,9 +471,9 @@ export function useYad2Search(
       // Only re-check runs that have not reached a terminal status yet; all in parallel.
       const pending = ids.filter((id) => !isTerminal(statusesRef.current[id]))
       const results = await Promise.all(
-        pending.map(async (id): Promise<[string, Yad2RunStatus]> => {
+        pending.map(async (id): Promise<[string, RunStatusResult]> => {
           try {
-            return [id, await checkYad2Run(id)]
+            return [id, await config.check(id)]
           } catch {
             return [id, { ok: false, message: 'Status request failed.' }]
           }
@@ -449,14 +499,14 @@ export function useYad2Search(
         }
 
         const t = tally(statusesRef.current, startFailuresRef.current)
-        console.info('[yad2] run statuses', { statuses: { ...statusesRef.current }, tally: t, elapsedMs: elapsed })
+        console.info(`[${logTag}] run statuses`, { statuses: { ...statusesRef.current }, tally: t, elapsedMs: elapsed })
 
         if (t.active === 0) {
           if (t.succeeded > 0) return finishImport(t)
           const allMissing = Object.values(statusesRef.current).every((s) => s === NOT_FOUND)
           return failTracked(
             allMissing
-              ? 'The saved Yad2 search could not be found on Apify. You can start a new search.'
+              ? `The saved ${label} search could not be found on Apify. You can start a new search.`
               : `The ${searchesLabel(t)} ended without success. Your current listings are unchanged.`,
           )
         }
@@ -470,7 +520,7 @@ export function useYad2Search(
             phase: 'background',
             outcome: 'running',
             runStatus,
-            message: BACKGROUND_MESSAGE,
+            message: backgroundMessage,
             nextPollMs: null,
           }))
           return
@@ -482,15 +532,15 @@ export function useYad2Search(
           runStatus,
           message:
             transientErrors > 0 && transientErrors === results.length
-              ? 'Having trouble reaching Yad2. Retrying…'
+              ? `Having trouble reaching ${label}. Retrying…`
               : activeMessage(elapsed, updatingMessage(t)),
           nextPollMs,
         }))
       },
       onError: () => {
         const nextPollMs = pollDelayFor(Date.now() - startedAtRef.current)
-        console.warn('[yad2] status requests errored; will retry', { nextPollMs })
-        setState((prev) => ({ ...prev, nextPollMs, message: 'Having trouble reaching Yad2. Retrying…' }))
+        console.warn(`[${logTag}] status requests errored; will retry`, { nextPollMs })
+        setState((prev) => ({ ...prev, nextPollMs, message: `Having trouble reaching ${label}. Retrying…` }))
       },
     },
   )
@@ -498,22 +548,26 @@ export function useYad2Search(
   const isUpdating = isBusyPhase(state.phase)
   const isTrackingCurrent = isUpdating && trackedSignature === currentSignature
 
-  const start = async (input: Yad2SearchInput) => {
+  const start = async (input: RefreshInput) => {
     const signature = yad2SearchSignature(input)
     if (startingRef.current) return
     // Only the exact same refresh is skipped; a refresh for other filters may start while one runs in the background.
     if (trackedSignature === signature && isBusyPhase(state.phase)) {
-      toast.info('Yad2 refresh already running', { description: 'This search is already updating in the background.' })
+      toast.info(`${label} refresh already running`, { description: 'This search is already updating in the background.' })
       return
     }
     startingRef.current = true
     setIsStarting(true)
 
-    let result: Awaited<ReturnType<typeof startYad2Search>>
+    let result: StartRefreshResult
     try {
-      result = await startYad2Search(input)
+      result = await config.start(input)
     } catch {
-      result = { ok: false, kind: 'error', message: 'Could not start the Yad2 refresh. Your current listings are unchanged.' }
+      result = {
+        ok: false,
+        kind: 'error',
+        message: `Could not start the ${label} refresh. Your current listings are unchanged.`,
+      }
     } finally {
       startingRef.current = false
       setIsStarting(false)
@@ -521,39 +575,40 @@ export function useYad2Search(
 
     if (!result.ok) {
       // Refusals are informational only: listings stay usable and any tracked update keeps running untouched.
-      console.info('[yad2] refresh not started; previous update left untouched', { kind: result.kind })
-      if (result.kind === 'unsupported') toast.info('Yad2 refresh not available', { description: result.message })
-      else toast.warning('Yad2 refresh not started', { description: result.message })
+      console.info(`[${logTag}] refresh not started; previous update left untouched`, { kind: result.kind })
+      if (result.kind === 'unsupported') toast.info(`${label} refresh not available`, { description: result.message })
+      else toast.warning(`${label} refresh not started`, { description: result.message })
       return
     }
 
     if (runIds.length > 0 || importingRef.current) {
       // Older runs keep running on Apify and the webhook still imports them into Supabase;
       // they show up on this search's refresh, on window focus, or on reload.
-      console.info('[yad2] replacing tracked search; previous runs continue in the background', {
+      console.info(`[${logTag}] replacing tracked search; previous runs continue in the background`, {
         previousRunIds: Object.keys(statusesRef.current),
       })
     }
     generationRef.current += 1
     importingRef.current = false
-    baselineRef.current = listingsFingerprint(listingsRef.current)
-    baselineSnapshotRef.current = snapshotListings(listingsRef.current)
+    const own = ofSource(listingsRef.current, source)
+    baselineRef.current = listingsFingerprint(own)
+    baselineSnapshotRef.current = snapshotListings(own)
     startedAtRef.current = Date.now()
     startFailuresRef.current = result.startFailures
     statusesRef.current = Object.fromEntries(result.runIds.map((id) => [id, result.status]))
-    writeStoredRuns({
+    writeStoredRuns(storageKey, {
       runIds: result.runIds,
       startedAt: startedAtRef.current,
       searchSignature: signature,
       filters: yad2SignatureFilters(input),
     })
-    console.info('[yad2] runs started; run_ids persisted with search signature', {
+    console.info(`[${logTag}] runs started; run_ids persisted with search signature`, {
       runIds: result.runIds,
       startFailures: result.startFailures,
       filters: yad2SignatureFilters(input),
     })
     if (result.startFailures > 0) {
-      toast.warning('Some Yad2 searches could not start', {
+      toast.warning(`Some ${label} searches could not start`, {
         description: result.startLimitReached
           ? `Apify concurrency limit reached for ${result.startFailures} of ${result.runIds.length + result.startFailures} searches. Tracking the rest.`
           : `${result.startFailures} of ${result.runIds.length + result.startFailures} searches failed to start. Tracking the rest.`,
@@ -578,4 +633,12 @@ export function useYad2Search(
   }
 
   return { state, start, dismiss, isStarting, isUpdating, isTrackingCurrent }
+}
+
+export function useYad2Search(
+  currentInput: RefreshInput,
+  onImported: () => Promise<FingerprintItem[] | undefined>,
+  currentListings: readonly FingerprintItem[] | undefined,
+) {
+  return useSourceRefresh(YAD2_REFRESH, currentInput, onImported, currentListings)
 }

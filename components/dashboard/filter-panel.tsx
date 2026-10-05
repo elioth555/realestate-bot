@@ -24,6 +24,11 @@ type FilterPanelProps = {
   refreshStarting?: boolean
   /** A background Yad2 update is running for any criteria. */
   yad2Updating?: boolean
+  onRefreshMadlan: () => void
+  /** The Madlan start request is in flight. */
+  madlanStarting?: boolean
+  /** A background Madlan update is running for any criteria. */
+  madlanUpdating?: boolean
 }
 
 type Option = { label: string; value: string | null }
@@ -194,6 +199,9 @@ export function FilterPanel({
   onRefreshYad2,
   refreshStarting = false,
   yad2Updating = false,
+  onRefreshMadlan,
+  madlanStarting = false,
+  madlanUpdating = false,
 }: FilterPanelProps) {
   const set = <K extends keyof Filters>(key: K, value: Filters[K]) => onChange({ ...filters, [key]: value })
 
@@ -345,23 +353,43 @@ export function FilterPanel({
           <Search className="size-4" aria-hidden="true" />
           Apply filters
         </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={onRefreshYad2}
-          disabled={refreshStarting}
-          aria-busy={refreshStarting}
-          className="col-span-2 h-10 gap-1.5"
-        >
-          {refreshStarting ? (
-            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <RefreshCw className={cn('size-4', yad2Updating && 'animate-spin')} aria-hidden="true" />
-          )}
-          {refreshStarting ? 'Starting Yad2 refresh…' : 'Refresh from Yad2'}
-        </Button>
+        <div role="group" aria-labelledby="source-refresh-label" className="col-span-2 grid grid-cols-2 gap-2">
+          <p id="source-refresh-label" className="col-span-2 text-xs font-medium text-muted-foreground">
+            Refresh sources
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onRefreshYad2}
+            disabled={refreshStarting}
+            aria-busy={refreshStarting}
+            className="h-10 gap-1.5"
+          >
+            {refreshStarting ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <RefreshCw className={cn('size-4', yad2Updating && 'animate-spin')} aria-hidden="true" />
+            )}
+            {refreshStarting ? 'Starting…' : 'Refresh Yad2'}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onRefreshMadlan}
+            disabled={madlanStarting}
+            aria-busy={madlanStarting}
+            className="h-10 gap-1.5"
+          >
+            {madlanStarting ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <RefreshCw className={cn('size-4', madlanUpdating && 'animate-spin')} aria-hidden="true" />
+            )}
+            {madlanStarting ? 'Starting…' : 'Refresh Madlan'}
+          </Button>
+        </div>
         <p className="col-span-2 text-xs leading-relaxed text-muted-foreground">
-          Filters apply instantly to stored listings. Yad2 refresh imports new listings in the background.
+          Filters apply instantly to stored listings. Source refreshes import new listings in the background.
         </p>
       </div>
     </form>

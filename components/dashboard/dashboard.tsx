@@ -31,6 +31,7 @@ import { ListingsGrid } from './listings-grid'
 import { ListingsError, ListingsLoading } from './listings-status'
 import { SavedSearches } from './saved-searches'
 import { StatsBar } from './stats-bar'
+import { MADLAN_AMENITY_FILTERS, useMadlanSearch } from './use-madlan-search'
 import { useYad2Search } from './use-yad2-search'
 import { Yad2SearchStatus } from './yad2-search-status'
 
@@ -89,6 +90,11 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
     neighborhoods: draft.neighborhoods,
   }
   const yad2 = useYad2Search(yad2Input, () => mutate(), data)
+  const madlanInput = {
+    ...yad2Input,
+    amenities: draft.amenities.filter((a) => (MADLAN_AMENITY_FILTERS as readonly string[]).includes(a)),
+  }
+  const madlan = useMadlanSearch(madlanInput, () => mutate(), data)
 
   useEffect(() => {
     console.info('[dashboard] restored filters from URL', {
@@ -140,6 +146,11 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
     void yad2.start(yad2Input)
   }
 
+  const handleRefreshMadlan = () => {
+    if (tab === 'saved') setTab('all')
+    void madlan.start(madlanInput)
+  }
+
   const handleSave = () => {
     const parts = describeFilters(draft, scope)
     const name = parts.length ? parts.slice(0, 3).join(' · ') : 'All listings'
@@ -177,7 +188,10 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
       onChange={setDraft} onSearch={handleSearch} onSave={handleSave} onReset={handleReset}
       onRefreshYad2={handleRefreshYad2}
       refreshStarting={yad2.isStarting}
-      yad2Updating={yad2.isUpdating} />
+      yad2Updating={yad2.isUpdating}
+      onRefreshMadlan={handleRefreshMadlan}
+      madlanStarting={madlan.isStarting}
+      madlanUpdating={madlan.isUpdating} />
   )
 
   const tabs: { key: TabKey; label: string; count: number }[] = [
@@ -260,7 +274,8 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
           </Tabs>
 
           <div className="mt-4">
-            <Yad2SearchStatus state={yad2.state} onDismiss={yad2.dismiss} matchCount={results.length} />
+            <Yad2SearchStatus state={yad2.state} onDismiss={yad2.dismiss} matchCount={results.length} label="Yad2" />
+            <Yad2SearchStatus state={madlan.state} onDismiss={madlan.dismiss} matchCount={results.length} label="Madlan" />
             {error ? (
               <ListingsError
                 message={error instanceof SupabaseLoadError ? error.message : 'Could not reach Supabase.'}
