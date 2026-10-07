@@ -1,6 +1,10 @@
+'use client'
+
+import { useState } from 'react'
 import { SearchX } from 'lucide-react'
 import type { Listing } from '@/lib/listings'
 import { ListingCard } from './listing-card'
+import { ListingDetailSheet } from './listing-detail-sheet'
 
 type ListingsGridProps = {
   listings: Listing[]
@@ -11,6 +15,8 @@ type ListingsGridProps = {
 }
 
 export function ListingsGrid({ listings, favorites, onToggleFavorite, emptyTitle, emptyDescription }: ListingsGridProps) {
+  const [selected, setSelected] = useState<Listing | null>(null)
+
   if (listings.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-xl border border-dashed bg-card px-6 py-16 text-center">
@@ -24,15 +30,19 @@ export function ListingsGrid({ listings, favorites, onToggleFavorite, emptyTitle
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {listings.map((listing) => (
-        <ListingCard
-          key={listing.id}
-          listing={listing}
-          isFavorite={favorites.has(listing.id)}
-          onToggleFavorite={onToggleFavorite}
-        />
-      ))}
-    </div>
+    <>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {listings.map((listing) => (
+          <ListingCard
+            key={listing.id}
+            listing={listing}
+            isFavorite={favorites.has(listing.id)}
+            onToggleFavorite={onToggleFavorite}
+            onOpen={setSelected}
+          />
+        ))}
+      </div>
+      <ListingDetailSheet listing={selected} onOpenChange={(open) => !open && setSelected(null)} />
+    </>
   )
 }

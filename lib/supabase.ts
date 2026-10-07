@@ -34,7 +34,7 @@ function resolveLocation(
 const LEGACY_PHOTOS_TABLE = 'proprety_photos'
 const MAX_ROWS = 1000
 
-type PropertyRow = {
+export type PropertyRow = {
   id: string | number
   created_at: string | null
   title: string | null
@@ -111,12 +111,12 @@ const AMENITY_COLUMNS: [AmenityKey, keyof PropertyRow][] = [
 ]
 
 export class SupabaseLoadError extends Error {
-  constructor(
-    message: string,
-    public hint?: string,
-  ) {
+  hint?: string
+
+  constructor(message: string, hint?: string) {
     super(message)
     this.name = 'SupabaseLoadError'
+    this.hint = hint
   }
 }
 
@@ -242,47 +242,62 @@ export async function fetchListings(): Promise<Listing[]> {
     `[v0] photo diagnostics: property 24 -> ${diagnosticPhotos.length} photos, first: ${diagnosticPhotos[0] ?? 'none'} (total photo rows: ${photosRes.data.length}, properties with photos: ${photosByProperty.size})`,
   )
 
-  return ((propertiesRes.data ?? []) as PropertyRow[]).map((row) => {
-    const id = String(row.id)
-    const price = toNumber(row.price)
-    const rooms = toNumber(row.rooms)
-    const surface = toNumber(row.surface_m2)
-    const source = normalizeSource(row.source)
-    // Raw columns are never rewritten; tri-state features are derived here on every load.
-    // Yad2 stores unticked checkboxes as false, which means "not declared" rather than "does not exist".
-    const derived = deriveFeatures({
-      flags: Object.fromEntries(AMENITY_COLUMNS.map(([key, column]) => [key, row[column] as boolean | null])),
-      flagSemantics: source === 'yad2' ? 'positive-only' : 'explicit',
-      protectedSpaceFlagType: 'mamad',
-      texts: [row.title, row.description],
-      availableFrom: row.available_from,
-    })
-    return {
-      id,
-      title: row.title ?? '',
-      dealType: normalizeDealType(row.transaction_type),
-      price: toNumber(row.price) ?? 0,
-      ...resolveLocation(row, source),
-      street: row.street ?? '',
-      rooms: toNumber(row.rooms) ?? 0,
-      surface: toNumber(row.surface_m2) ?? 0,
-      floor: toNumber(row.floor),
-      propertyType: normalizePropertyType(row.property_type),
-      amenities: AMENITY_KEYS.filter((key) => derived.features[key] === 'yes'),
-      features: derived.features,
-      protectedSpaceType: derived.protectedSpaceType,
-      entryDate: derived.entryDate,
-      known: {
-        price: price !== null && price > 0,
-        rooms: rooms !== null && rooms > 0,
-        surface: surface !== null && surface > 0,
-      },
-      phone: row.phone ?? '',
-      source,
-      url: row.source_url ?? '',
-      publishedMinutesAgo: minutesSince(row.published_at, row.created_at),
-      photos: photosByProperty.get(id) ?? [],
-      image: photosByProperty.get(id)?.[0] ?? null,
-    }
+  return ((propertiesRes.data ?? []) as PropertyRow[]).map((row) =>
+    rowToListing(row, photosByProperty.get(String(row.id)) ?? []),
+  )
+}
+
+function firstValidDate(...dates: (string | null | undefined)[]) {
+  for (const d of dates) {
+    if (d && Number.isFinite(new Date(d).getTime())) return d
+  }
+  return null
+}
+
+export function rowToListing(row: PropertyRow, photos: string[] = []): Listing {
+  const price = toNumber(row.price)
+  const rooms = toNumber(row.rooms)
+  const surface = toNumber(row.surface_m2)
+  const source = normalizeSource(row.source)
+  // Raw columns are never rewritten; tri-state features are derived here on every load.
+  // Yad2 stores unticked checkboxes as false, which means "not declared" rather than "does not exist".
+  const derived = deriveFeatures({
+    flags: Object.fromEntries(AMENITY_COLUMNS.map(([key, column]) => [key, row[column] as boolean | null])),
+    flagSemantics: source === 'yad2' ? 'positive-only' : 'explicit',
+    protectedSpaceFlagType: 'mamad',
+    texts: [row.title, row.description],
+    availableFrom: row.available_from,
   })
+  const location = resolveLocation(row, source)
+  return {
+    id: String(row.id),
+    title: row.title ?? '',
+    description: row.description?.trim() ?? '',
+    dealType: normalizeDealType(row.transaction_type),
+    price: price ?? 0,
+    ...location,
+    // Every configured Facebook group is a Tel Aviv group, so a post with no detected city is a Tel Aviv post.
+    city: location.city || (source === 'facebook' ? CANONICAL_CITY : ''),
+    street: row.street ?? '',
+    rooms: rooms ?? 0,
+    surface: surface ?? 0,
+    floor: toNumber(row.floor),
+    propertyType: normalizePropertyType(row.property_type),
+    amenities: AMENITY_KEYS.filter((key) => derived.features[key] === 'yes'),
+    features: derived.features,
+    protectedSpaceType: derived.protectedSpaceType,
+    entryDate: derived.entryDate,
+    known: {
+      price: price !== null && price > 0,
+      rooms: rooms !== null && rooms > 0,
+      surface: surface !== null && surface > 0,
+    },
+    phone: row.phone?.trim() ?? '',
+    source,
+    url: row.source_url ?? '',
+    publishedAt: firstValidDate(row.published_at, row.created_at),
+    publishedMinutesAgo: minutesSince(row.published_at, row.created_at),
+    photos,
+    image: photos[0] ?? null,
+  }
 }

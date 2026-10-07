@@ -62,6 +62,8 @@ import { CANONICAL_NEIGHBORHOODS, isCanonicalCity } from './geo/canonical-neighb
 export type Listing = {
   id: string
   title: string
+  /** Original source text (the full Facebook post for Facebook listings); empty when not stored. */
+  description: string
   dealType: DealType
   price: number
   city: string
@@ -82,6 +84,8 @@ export type Listing = {
   phone: string
   source: Source
   url: string
+  /** ISO timestamp of publication (falls back to import time); null when neither is known. */
+  publishedAt: string | null
   publishedMinutesAgo: number
   photos: string[]
   image: string | null
