@@ -254,14 +254,16 @@ function parseFloor(text: string): { floor: number | null; totalFloors: number |
 
 // ---------- price ----------
 
-const NUM = '(\\d{1,3}(?:,\\d{3})+|\\d+(?:\\.\\d+)?)'
-const MULT = `(?:\\s?(k|K|אלף)${AFTER})?`
+// "5.430.000" / "₪13.900" use dots as thousands separators; "3.79" stays a decimal.
+const NUM = '(\\d{1,3}(?:,\\d{3})+|\\d{1,3}(?:\\.\\d{3})+(?![\\d.])|\\d+(?:\\.\\d+)?)'
 const CURRENCY = `(?:₪|ש${QUOTE}?ח${AFTER}|שקלים${AFTER}|שקל${AFTER}|nis\\b|ils\\b)`
+// "3.79 מ׳ ש"ח" = 3.79 million; the bare "מ׳" abbreviation only counts when a currency follows ("100 מ'" is meters).
+const MULT = `(?:\\s?(k|K|אלף|מיליון|מליון)${AFTER}|\\s?(מ${QUOTE})(?=\\s*${CURRENCY}))?`
 const PRICE_CONTEXT = [
   new RegExp(`₪\\s*${NUM}${MULT}`, 'giu'),
   new RegExp(`(?<![\\d.,])${NUM}${MULT}\\s*${CURRENCY}`, 'giu'),
   new RegExp(
-    `${BEFORE}(?:מחיר|שכירות|שכ${QUOTE}ד|שכר\\s+דירה|price|rent)\\s*[:\\-]?\\s*(?:של\\s*|is\\s*)?${NUM}${MULT}(?![\\d,]|\\.\\d)`,
+    `${BEFORE}(?:מחיר|שכירות|שכ${QUOTE}ד|שכר\\s+דירה|price|rent)(?:\\s+(?:חדש|מבוקש))?\\s*[:\\-]?\\s*(?:של\\s*|is\\s*)?${NUM}${MULT}(?![\\d,]|\\.\\d)`,
     'giu',
   ),
   new RegExp(`(?<![\\d.,])${NUM}${MULT}\\s*(?:לחודש${AFTER}|לחו${QUOTE}ד|per\\s+month\\b|\\/\\s?month\\b|a\\s+month\\b)`, 'giu'),
@@ -273,8 +275,10 @@ const PRICE_BARE = new RegExp(
 const MIN_PRICE = 500
 const MAX_PRICE = 200_000_000
 
-function toPrice(num: string, mult: string | undefined): number | null {
-  const value = Number(num.replace(/,/g, '')) * (mult ? 1000 : 1)
+function toPrice(num: string, thousands: string | undefined, millionAbbr?: string): number | null {
+  const base = /^\d{1,3}(?:[.,]\d{3})+$/.test(num) ? Number(num.replace(/[.,]/g, '')) : Number(num)
+  const factor = millionAbbr || (thousands && /^מ/.test(thousands)) ? 1_000_000 : thousands ? 1000 : 1
+  const value = base * factor
   return Number.isFinite(value) && value >= MIN_PRICE && value <= MAX_PRICE ? Math.round(value) : null
 }
 
@@ -293,7 +297,7 @@ function parsePrice(text: string): number | null {
   for (const re of PRICE_CONTEXT) {
     for (const m of text.matchAll(re)) {
       if (isFeeOrUnitPrice(text, m.index!, m[0].length)) continue
-      const value = toPrice(m[1], m[2])
+      const value = toPrice(m[1], m[2], m[3])
       if (value !== null && (!best || m.index! < best.index)) best = { index: m.index!, value }
     }
   }
@@ -325,11 +329,15 @@ const STREET_STOPWORDS = new Set([
 const STREET_DESCRIPTORS = new Set([
   'שקט', 'השקט', 'שקטה', 'ירוק', 'וירוק', 'הירוק', 'קסום', 'הקסום', 'נעים', 'פסטורלי', 'הפסטורלי',
   'מבוקש', 'המבוקש', 'ראשי', 'צדדי', 'פנימי', 'יפה', 'מקסים', 'ציורי', 'מרכזי', 'המרכזי', 'הומה',
-  'סואן', 'שקט,', 'ללא', 'מוצל', 'חד', 'סטרי', 'ומבוקש', 'ושקט', 'מטופח', 'מהמם', 'חלומי', 'שלו',
+  'סואן', 'שקט,', 'ללא', 'מוצל', 'חד', 'סטרי', 'ו��בוקש', 'ושקט', 'מטופח', 'מהמם', 'חלומי', 'שלו',
 ])
 const EDGE_PUNCT = new RegExp(`^[^\\p{L}\\p{N}]+|[^\\p{L}\\p{N}]+$`, 'gu')
 const CLAUSE_END = /[,.!?|:;)(\/\u2013\u2014]$/
 const UNIT_TOKEN = new RegExp(`^(?:חד|חדר|מ${QUOTE}?ר|מטר|קומ|₪|ש${QUOTE}?ח|אלף|rooms?|sqm|m2)`, 'iu')
+
+const FLOOR_PHRASE_TOKEN = /^ב?קומה$/u
+// "214 קומה 3" → "214, קומה 3" so the address lookup reads 214 as a house number; the street is still validated there.
+const NUMBER_BEFORE_FLOOR = /(\d{1,3})(\s+)(?=ב?קומה\s*:?\s*-?\d{1,2}(?!\d))/gu
 
 type StreetCandidate = { name: string; number: string | null }
 
@@ -352,7 +360,10 @@ function readStreetAfter(text: string, from: number, citySpans: Span[]): StreetC
     }
     if (kept.length && leadingPunct) break // "בן יהודה /בוגרשוב"
     if (/^\d{1,4}[\u05D0-\u05EA]?$/.test(word)) {
-      if (kept.length && !UNIT_TOKEN.test(tokens[i + 1]?.word ?? '')) number = word.replace(/\D/g, '')
+      const next = tokens[i + 1]?.word ?? ''
+      // "דיזנגוף 214 קומה 3": a number between an official street and a floor phrase is the house number.
+      const beforeFloor = FLOOR_PHRASE_TOKEN.test(next) && /^-?\d{1,2}$/.test(tokens[i + 2]?.word ?? '') && isKnownStreet(kept.join(' '))
+      if (kept.length && (beforeFloor || !UNIT_TOKEN.test(next))) number = word.replace(/\D/g, '')
       break
     }
     if (/\d/.test(word)) break // "ב2900"
@@ -388,7 +399,9 @@ function parseStreet(text: string, citySpans: Span[]): string | null {
     return candidate.number ? `${name} ${candidate.number}` : name
   }
   // No marker: only an official Tel Aviv street directly followed by a house number ("בדיזנגוף 214").
-  const address = findAddressesInText(text.replace(/(^|\s)[בל][-\u05BE](?=[\u05D0-\u05EA])/g, '$1'))[0]
+  const address = findAddressesInText(
+    text.replace(/(^|\s)[בל][-\u05BE](?=[\u05D0-\u05EA])/g, '$1').replace(NUMBER_BEFORE_FLOOR, '$1,$2'),
+  )[0]
   if (address) return `${address.name} ${address.number}`
   const en = text.match(STREET_EN)
   if (en) return en[1] ? `${en[2]} ${en[1]}` : en[2]

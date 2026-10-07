@@ -165,6 +165,52 @@ test('phone present / absent', () => {
   assert.equal(prod(718).phone, '')
 })
 
+function mapped(text: string) {
+  return mapFacebookItem({ url: 'https://www.facebook.com/groups/1/posts/2', text } as any).property as any
+}
+
+test('official street + house number followed by a floor, no comma', () => {
+  for (const [text, street, floor] of [
+    ['דיזנגוף 214 קומה 3', 'דיזנגוף 214', 3],
+    ['בדיזנגוף 214 קומה 3', 'דיזנגוף 214', 3],
+    ['אבן גבירול 17 קומה 2', 'אבן גבירול 17', 2],
+    ['ב-אבן גבירול 17 קומה 2', 'אבן גבירול 17', 2],
+    ['ברחוב דיזנגוף 214 קומה 3', 'דיזנגוף 214', 3],
+  ] as const) {
+    const p = mapped(text)
+    assert.equal(p.street, street, text)
+    assert.equal(p.floor, floor, text)
+  }
+  const full = mapped('להשכרה דירת 3 חדרים בדיזנגוף 214 קומה 3 מחיר 7,500 ₪')
+  assert.deepEqual([full.street, full.floor, full.price, full.rooms, full.transaction_type], ['דיזנגוף 214', 3, 7_500, 3, 'rent'])
+})
+
+test('floor phrase does not turn a number after a non-street into a house number', () => {
+  assert.equal(mapped('דירת 3 קומה 2 להשכרה').street, null)
+})
+
+test('price formats from real production posts', () => {
+  // post 719
+  const a = mapped('מתיווך למכירה בית דו משפחתי ברחוב שקט שבשכונת יד אליהו תל אביב שטח מגרש 282 מר מחיר חדש 5.430.000 שח')
+  assert.deepEqual([a.price, a.transaction_type], [5_430_000, 'sale'])
+  // post 787
+  assert.equal(mapped('למכירה דירה צפון יד אליהו קרקע 86 מטר פינתית מחיר 3.150.000 יפית').price, 3_150_000)
+  // post 657: million abbreviation; "100 מ' מהדירה" is meters, not money
+  const c = mapped('דירה למכירה בלב תל אביב דירת 3 חדרים, 66 מ"ר קומה 2.5 מקלט ציבורי 100 מ\' מהדירה מחיר מבוקש: 3.79 מ׳ ש"ח')
+  assert.deepEqual([c.price, c.rooms, c.transaction_type], [3_790_000, 3, 'sale'])
+  // post 709
+  const d = mapped('For Rent | Sarona Towers – Tel Aviv 100 sqm 4 rooms 💰 ₪13.900 per month')
+  assert.deepEqual([d.price, d.rooms, d.transaction_type], [13_900, 4, 'rent'])
+})
+
+test('ambiguous or non-rent amounts stay out of price', () => {
+  assert.equal(mapped('למכירה דירת 5 חדרים 148.5 מ"ר מחיר 5.85 תיווך').price, null) // post 695: no unit
+  assert.equal(mapped('דירה להשכרה ארנונה 1.200 ש"ח').price, null)
+  assert.equal(mapped('דירה להשכרה ועד בית 250 ₪').price, null)
+  assert.equal(mapped('למכירה 48.000 ש"ח למ"ר').price, null)
+  assert.equal(mapped('מקלט 100 מ\' מהדירה').price, null)
+})
+
 test('amenities still parsed (regression)', () => {
   const l = fromText('להשכרה ברחוב הרצל 3 חדרים, מעלית, חניה, ממ"ד, 7,000 ₪ 050-1234567')
   assert.ok(l.amenities.includes('elevator'))
