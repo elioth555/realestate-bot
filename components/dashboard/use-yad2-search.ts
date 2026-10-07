@@ -35,7 +35,7 @@ export function pollDelayFor(elapsedMs: number) {
   return 0
 }
 
-export type RefreshSource = 'yad2' | 'madlan'
+export type RefreshSource = 'yad2' | 'madlan' | 'facebook'
 /** Dashboard filters sent to a source refresh. `amenities` is only used by sources that filter on them (Madlan). */
 export type RefreshInput = Yad2SearchInput & { amenities?: string[] }
 export type RunStatusResult = Yad2RunStatus

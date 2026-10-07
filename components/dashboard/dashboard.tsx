@@ -32,6 +32,7 @@ import { ListingsError, ListingsLoading } from './listings-status'
 import { SavedSearches } from './saved-searches'
 import { StatsBar } from './stats-bar'
 import { MADLAN_AMENITY_FILTERS, useMadlanSearch } from './use-madlan-search'
+import { FACEBOOK_REFRESH_INPUT, useFacebookSearch } from './use-facebook-search'
 import { useYad2Search } from './use-yad2-search'
 import { Yad2SearchStatus } from './yad2-search-status'
 
@@ -95,6 +96,7 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
     amenities: draft.amenities.filter((a) => (MADLAN_AMENITY_FILTERS as readonly string[]).includes(a)),
   }
   const madlan = useMadlanSearch(madlanInput, () => mutate(), data)
+  const facebook = useFacebookSearch(() => mutate(), data)
 
   useEffect(() => {
     console.info('[dashboard] restored filters from URL', {
@@ -151,6 +153,11 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
     void madlan.start(madlanInput)
   }
 
+  const handleRefreshFacebook = () => {
+    if (tab === 'saved') setTab('all')
+    void facebook.start(FACEBOOK_REFRESH_INPUT)
+  }
+
   const handleSave = () => {
     const parts = describeFilters(draft, scope)
     const name = parts.length ? parts.slice(0, 3).join(' · ') : 'All listings'
@@ -191,7 +198,10 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
       yad2Updating={yad2.isUpdating}
       onRefreshMadlan={handleRefreshMadlan}
       madlanStarting={madlan.isStarting}
-      madlanUpdating={madlan.isUpdating} />
+      madlanUpdating={madlan.isUpdating}
+      onRefreshFacebook={handleRefreshFacebook}
+      facebookStarting={facebook.isStarting}
+      facebookUpdating={facebook.isUpdating} />
   )
 
   const tabs: { key: TabKey; label: string; count: number }[] = [
@@ -276,6 +286,7 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
           <div className="mt-4">
             <Yad2SearchStatus state={yad2.state} onDismiss={yad2.dismiss} matchCount={results.length} label="Yad2" />
             <Yad2SearchStatus state={madlan.state} onDismiss={madlan.dismiss} matchCount={results.length} label="Madlan" />
+            <Yad2SearchStatus state={facebook.state} onDismiss={facebook.dismiss} matchCount={results.length} label="Facebook" />
             {error ? (
               <ListingsError
                 message={error instanceof SupabaseLoadError ? error.message : 'Could not reach Supabase.'}

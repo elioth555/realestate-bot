@@ -29,6 +29,11 @@ type FilterPanelProps = {
   madlanStarting?: boolean
   /** A background Madlan update is running for any criteria. */
   madlanUpdating?: boolean
+  onRefreshFacebook: () => void
+  /** The Facebook start request is in flight. */
+  facebookStarting?: boolean
+  /** A background Facebook update is running. */
+  facebookUpdating?: boolean
 }
 
 type Option = { label: string; value: string | null }
@@ -202,6 +207,9 @@ export function FilterPanel({
   onRefreshMadlan,
   madlanStarting = false,
   madlanUpdating = false,
+  onRefreshFacebook,
+  facebookStarting = false,
+  facebookUpdating = false,
 }: FilterPanelProps) {
   const set = <K extends keyof Filters>(key: K, value: Filters[K]) => onChange({ ...filters, [key]: value })
 
@@ -386,6 +394,21 @@ export function FilterPanel({
               <RefreshCw className={cn('size-4', madlanUpdating && 'animate-spin')} aria-hidden="true" />
             )}
             {madlanStarting ? 'Starting…' : 'Refresh Madlan'}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onRefreshFacebook}
+            disabled={facebookStarting}
+            aria-busy={facebookStarting}
+            className="col-span-2 h-10 gap-1.5"
+          >
+            {facebookStarting ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <RefreshCw className={cn('size-4', facebookUpdating && 'animate-spin')} aria-hidden="true" />
+            )}
+            {facebookStarting ? 'Starting…' : 'Refresh Facebook'}
           </Button>
         </div>
         <p className="col-span-2 text-xs leading-relaxed text-muted-foreground">
