@@ -71,8 +71,10 @@ export function ListingCard({ listing, isFavorite, onToggleFavorite }: ListingCa
 
         <div className="space-y-0.5">
           <h3 className="text-sm font-medium">
-            {listing.neighborhood}
-            <span className="font-normal text-muted-foreground">{`, ${listing.city}`}</span>
+            {listing.neighborhood || listing.city}
+            {listing.neighborhood && listing.city ? (
+              <span className="font-normal text-muted-foreground">{`, ${listing.city}`}</span>
+            ) : null}
           </h3>
           <p className="flex items-center gap-1 text-sm text-muted-foreground">
             <MapPin className="size-3.5 shrink-0" aria-hidden="true" />

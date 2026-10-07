@@ -1,5 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { AMENITY_KEYS, type AmenityKey, type Listing } from './listings'
+import { CANONICAL_CITY, isCanonicalCity } from './geo/canonical-neighborhoods'
+import { resolveNeighborhood } from './geo/resolve-neighborhood'
 import { deriveFeatures } from './matching/features'
 import {
   normalizeCity,
@@ -10,6 +12,25 @@ import {
 } from './normalize'
 
 const PHOTOS_TABLE = 'property_photos'
+
+/**
+ * Read-time neighborhood resolution; the stored raw `neighborhood` is never rewritten.
+ * Tel Aviv rows (and Facebook rows with no city, which come from Tel Aviv groups) resolve into the
+ * canonical zones; unresolved rows get an empty neighborhood rather than a raw source name.
+ */
+function resolveLocation(
+  row: { city: string | null; neighborhood: string | null; street: string | null; description?: string | null; title?: string | null },
+  source: Listing['source'],
+) {
+  const city = normalizeCity(row.city)
+  if (city && !isCanonicalCity(city)) return { city, neighborhood: normalizeNeighborhood(row.neighborhood) }
+  const { neighborhood } = resolveNeighborhood({
+    street: row.street,
+    sourceNeighborhood: row.neighborhood,
+    text: source === 'facebook' ? [row.title, row.description].filter(Boolean).join('\n') : null,
+  })
+  return { city: city || (neighborhood ? CANONICAL_CITY : ''), neighborhood: neighborhood ?? '' }
+}
 const LEGACY_PHOTOS_TABLE = 'proprety_photos'
 const MAX_ROWS = 1000
 
@@ -241,8 +262,7 @@ export async function fetchListings(): Promise<Listing[]> {
       title: row.title ?? '',
       dealType: normalizeDealType(row.transaction_type),
       price: toNumber(row.price) ?? 0,
-      city: normalizeCity(row.city),
-      neighborhood: normalizeNeighborhood(row.neighborhood),
+      ...resolveLocation(row, source),
       street: row.street ?? '',
       rooms: toNumber(row.rooms) ?? 0,
       surface: toNumber(row.surface_m2) ?? 0,

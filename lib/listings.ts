@@ -57,6 +57,8 @@ export const SOURCE_LABELS: Record<Source, string> = {
   other: 'Other',
 }
 
+import { CANONICAL_NEIGHBORHOODS, isCanonicalCity } from './geo/canonical-neighborhoods'
+
 export type Listing = {
   id: string
   title: string
@@ -95,7 +97,10 @@ export function buildCityIndex(listings: Listing[]) {
   }
   const sorted: Record<string, string[]> = {}
   for (const city of [...index.keys()].sort((a, b) => a.localeCompare(b))) {
-    sorted[city] = [...index.get(city)!].sort((a, b) => a.localeCompare(b))
+    // Tel Aviv always offers exactly the canonical zones, in their fixed north-to-south order.
+    sorted[city] = isCanonicalCity(city)
+      ? [...CANONICAL_NEIGHBORHOODS]
+      : [...index.get(city)!].sort((a, b) => a.localeCompare(b))
   }
   return sorted
 }
