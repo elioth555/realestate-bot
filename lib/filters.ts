@@ -53,9 +53,9 @@ export function sortListings(listings: Listing[], sort: SortKey) {
   const copy = [...listings]
   switch (sort) {
     case 'price-asc':
-      return copy.sort((a, b) => a.price - b.price)
+      return copy.sort((a, b) => Number(b.known.price) - Number(a.known.price) || a.price - b.price)
     case 'price-desc':
-      return copy.sort((a, b) => b.price - a.price)
+      return copy.sort((a, b) => Number(b.known.price) - Number(a.known.price) || b.price - a.price)
     case 'surface-desc':
       return copy.sort((a, b) => b.surface - a.surface)
     default:

@@ -34,6 +34,15 @@ const TRANSACTION_TYPES = ['rent', 'sale'] as const
 
 const REQUIRED_FIELDS = ['source_url', 'transaction_type', 'city', 'price'] as const
 
+// Facebook posts often omit the price (and sometimes the city) in the initial post; keep them instead of dropping.
+const FACEBOOK_REQUIRED_FIELDS = ['source', 'source_url', 'transaction_type', 'description'] as const
+
+export function requiredFieldsFor(source: unknown): readonly string[] {
+  return typeof source === 'string' && source.trim().toLowerCase() === 'facebook'
+    ? FACEBOOK_REQUIRED_FIELDS
+    : REQUIRED_FIELDS
+}
+
 export const SUPPORTED_FIELDS = [
   ...STRING_FIELDS,
   ...NUMBER_FIELDS,
@@ -84,7 +93,7 @@ export function validatePropertyInput(body: unknown): ValidationResult {
   const errors: string[] = []
   const data: PropertyInput = {}
 
-  for (const field of REQUIRED_FIELDS) {
+  for (const field of requiredFieldsFor(input.source)) {
     if (isBlank(input[field])) errors.push(`"${field}" is required.`)
   }
 

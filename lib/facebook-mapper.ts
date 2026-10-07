@@ -1,4 +1,4 @@
-import type { PropertyInput } from '@/lib/import-listing'
+import { requiredFieldsFor, type PropertyInput } from '@/lib/import-listing'
 import type { ProtectedSpaceType } from './listings'
 import { deriveFeatures, type DerivedFeatures } from './matching/features'
 import { CITY_ALIASES, NEIGHBORHOOD_ALIASES, normalizeCity, normalizeNeighborhood, normalizePropertyType } from './normalize'
@@ -29,11 +29,11 @@ export type FacebookMapResult = {
   /** The chosen actor returns no usable photo URLs, so this is always empty for now. */
   photoUrls: string[]
   extras: FacebookExtras
-  /** Required import fields (lib/import-listing REQUIRED_FIELDS) that could not be extracted. */
+  /** Facebook-required import fields (lib/import-listing requiredFieldsFor) that could not be extracted. */
   missingRequired: string[]
 }
 
-const REQUIRED: (keyof PropertyInput)[] = ['source_url', 'transaction_type', 'city', 'price']
+const REQUIRED = requiredFieldsFor('facebook') as readonly (keyof PropertyInput)[]
 
 const BEFORE = '(?<![\\p{L}\\p{N}])'
 const AFTER = '(?![\\p{L}\\p{N}])'

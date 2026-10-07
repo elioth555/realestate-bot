@@ -58,7 +58,7 @@ export function ListingCard({ listing, isFavorite, onToggleFavorite }: ListingCa
       <div className="flex flex-1 flex-col gap-3 p-4">
         <div className="flex items-start justify-between gap-2">
           <p className="text-xl font-semibold tracking-tight tabular-nums">
-            {formatPrice(listing.price)}
+            {listing.known.price ? formatPrice(listing.price) : 'Price not stated'}
             {listing.dealType === 'rent' && (
               <span className="text-sm font-normal text-muted-foreground"> /month</span>
             )}

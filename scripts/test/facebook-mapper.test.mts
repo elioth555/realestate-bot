@@ -61,7 +61,9 @@ test('real sample maps to the expected row', () => {
     post_intent: 'offer',
   })
   assert.deepEqual(result.photoUrls, [])
-  assert.deepEqual(result.missingRequired, ['price'])
+  // Price is optional for Facebook, so the real sample (no price stated) has nothing missing.
+  assert.deepEqual(result.missingRequired, [])
+  assert.equal(result.property.price, null)
   assert.ok(Object.values(result.derived.features).every((s) => s === 'unknown'), 'no amenity invented')
 })
 

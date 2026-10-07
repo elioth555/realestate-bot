@@ -9,12 +9,13 @@ export function StatsBar({ listings }: { listings: Listing[] }) {
   const rentals = listings.filter((l) => l.dealType === 'rent')
   const sales = listings.filter((l) => l.dealType === 'sale')
   const newToday = listings.filter((l) => l.publishedMinutesAgo < 1440).length
+  const knownPrices = (items: Listing[]) => items.filter((l) => l.known.price).map((l) => l.price)
 
   const stats = [
     { label: 'Active listings', value: listings.length.toString(), hint: 'Across 3 sources' },
     { label: 'New in 24h', value: newToday.toString(), hint: 'Since yesterday' },
-    { label: 'Avg. rent', value: formatPrice(average(rentals.map((l) => l.price))), hint: `${rentals.length} rentals` },
-    { label: 'Avg. sale price', value: formatPrice(average(sales.map((l) => l.price))), hint: `${sales.length} for sale` },
+    { label: 'Avg. rent', value: formatPrice(average(knownPrices(rentals))), hint: `${rentals.length} rentals` },
+    { label: 'Avg. sale price', value: formatPrice(average(knownPrices(sales))), hint: `${sales.length} for sale` },
   ]
 
   return (
