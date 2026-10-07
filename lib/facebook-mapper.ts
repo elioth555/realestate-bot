@@ -143,10 +143,11 @@ function extractPhones(text: string) {
 // ---------- deal type & intent ----------
 
 const RENT_RE = new RegExp(
-  `${BEFORE}(?:[לוב])?(?:השכרה|שכירות|סאבלט)${AFTER}|${BEFORE}שכ${QUOTE}ד${AFTER}|\\bfor\\s+rent\\b|\\brental\\b|\\bto\\s+let\\b|\\bsublet\\b`,
+  `${BEFORE}(?:[לוב])?(?:השכרה|שכירות|סאבלט)${AFTER}|${BEFORE}שכ${QUOTE}ד${AFTER}|\\brent\\b|\\brental\\b|\\bto\\s+let\\b|\\bsublet\\b`,
   'iu',
 )
-const SALE_RE = new RegExp(`${BEFORE}(?:[לו])?מכירה${AFTER}|${BEFORE}נמכרת${AFTER}|\\bfor\\s+sale\\b`, 'iu')
+// Explicit wording only. Investment/residence language ("להשקעה", "משקיעים", "למגורים") is deliberately NOT a sale signal.
+const SALE_RE = new RegExp(`${BEFORE}(?:[לו])?מכירה${AFTER}|${BEFORE}נמכרת${AFTER}|\\bsale\\b`, 'iu')
 const SEEKING_RE = new RegExp(
   `${BEFORE}(?:מחפש|מחפשת|מחפשים|מחפשות|דרוש|דרושה)${AFTER}|\\blooking\\s+for\\b|\\bsearching\\s+for\\b`,
   'iu',

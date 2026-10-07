@@ -2,6 +2,9 @@ import { validatePropertyInput, type PropertyInput } from '@/lib/import-listing'
 import { mapFacebookItem, type FacebookExtras, type FacebookItem } from '@/lib/facebook-mapper'
 import type { UpsertResult } from '@/lib/upsert-property'
 
+export const TRANSACTION_UNCLEAR = 'Transaction type unclear'
+const TRANSACTION_REQUIRED = '"transaction_type" is required.'
+
 export type FacebookImportError = { index: number; post_id: string | null; source_url: string | null; errors: string[] }
 export type FacebookSkip = { index: number; post_id: string | null; source_url: string | null; reason: string }
 
@@ -64,6 +67,11 @@ export async function importFacebookItems(items: unknown[], deps: FacebookImport
 
       const validation = validatePropertyInput(property)
       if (!validation.ok) {
+        // A usable post that just doesn't say rent vs sale is not a failure; we never guess the deal type.
+        if (property.transaction_type == null && validation.errors.every((e) => e === TRANSACTION_REQUIRED)) {
+          skips.push({ index, post_id: postId, source_url: sourceUrl, reason: TRANSACTION_UNCLEAR })
+          return
+        }
         errors.push({ index, post_id: postId, source_url: sourceUrl, errors: validation.errors })
         return
       }

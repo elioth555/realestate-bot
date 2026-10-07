@@ -86,15 +86,55 @@ test('malformed posts are rejected with reasons', async () => {
       'not an object',
       { text: 'להשכרה 3 חדרים בתל אביב' }, // no URL
       post('111', ''), // no text
-      post('222', 'דירה יפה 3 חדרים בתל אביב'), // no rent/sale
     ],
     store.deps,
   )
-  assert.equal(summary.failed, 5)
+  assert.equal(summary.failed, 4)
   assert.equal(store.rows.size, 0)
   assert.ok(summary.errors[2].errors.some((e) => e.includes('source_url')))
   assert.ok(summary.errors[3].errors.some((e) => e.includes('description')))
-  assert.ok(summary.errors[4].errors.some((e) => e.includes('transaction_type')))
+})
+
+test('ambiguous transaction type is skipped, not failed, and never guessed', async () => {
+  const store = fakeStore()
+  const ambiguous = [
+    post('601', 'דירה יפה 3 חדרים בתל אביב'),
+    post('602', 'הזדמנות להשקעה! 4 חדרים בפלורנטין'),
+    post('603', 'מתאים למשקיעים, 3 חדרים ברמת גן'),
+    post('604', 'דירה מושלמת למגורים, 2 חדרים, 050-1234567'),
+    post('605', 'להשכרה או למכירה, 3 חדרים בתל אביב'), // both stated → unclear
+  ]
+  const summary = await importFacebookItems(ambiguous, store.deps)
+  assert.equal(summary.failed, 0, JSON.stringify(summary.errors))
+  assert.equal(summary.skipped, 5)
+  assert.equal(store.rows.size, 0)
+  assert.ok(summary.skips.every((s) => s.reason === 'Transaction type unclear'))
+})
+
+test('explicit rent and sale wording still imports normally', async () => {
+  const cases: [string, 'rent' | 'sale'][] = [
+    ['להשכרה 3 חדרים בתל אביב', 'rent'],
+    ['שכירות ארוכת טווח, 3 חדרים', 'rent'],
+    ['להשכרה מיידית 2 חדרים', 'rent'],
+    ['דירה להשכרה בפלורנטין', 'rent'],
+    ['Apartment for rent in Tel Aviv', 'rent'],
+    ['Nice flat, rent 6000', 'rent'],
+    ['למכירה 4 חדרים ברמת גן', 'sale'],
+    ['מכירה ישירה מהבעלים', 'sale'],
+    ['דירה למכירה בתל אביב', 'sale'],
+    ['נכס למכירה, מתאים גם להשקעה', 'sale'],
+    ['Apartment for sale in Tel Aviv', 'sale'],
+    ['Sale: 3 rooms, Florentin', 'sale'],
+  ]
+  const store = fakeStore()
+  const summary = await importFacebookItems(cases.map(([text], i) => post(String(700 + i), text)), store.deps)
+  assert.equal(summary.failed, 0, JSON.stringify(summary.errors))
+  assert.equal(summary.skipped, 0, JSON.stringify(summary.skips))
+  assert.equal(summary.created, cases.length)
+  cases.forEach(([, expected], i) => {
+    const row = store.rows.get(`https://www.facebook.com/groups/938644249820363/posts/${700 + i}/`)?.row
+    assert.equal(row?.transaction_type, expected, cases[i][0])
+  })
 })
 
 test('reimport updates the same source_url instead of duplicating', async () => {
