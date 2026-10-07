@@ -114,9 +114,41 @@ test('coordinates are the strongest signal', () => {
 })
 
 test('refused and unknown source names are never guessed', () => {
-  for (const raw of ['רמת אביב החדשה', 'נחלת בנימין', 'שרונה', 'תל ברוך', 'Somewhere', '', null]) {
+  for (const raw of ['נחלת בנימין', 'גימל החדשה', 'תל ברוך', 'כפר שלם מערב', 'Somewhere', '', null]) {
     assert.equal(zoneFromSourceName(raw), null, String(raw))
   }
+})
+
+test('expanded zones resolve from source names', () => {
+  const cases: [string, string][] = [
+    ['רמת אביב החדשה', 'Ramat Aviv HaHadasha'],
+    ['נופי ים', 'Ramat Aviv HaHadasha'],
+    ['למד', 'Ramat Aviv HaHadasha'],
+    ['נווה אביבים', 'Neve Avivim'],
+    ["נאות אפקה א'", 'Neot Afeka'],
+    ['המשתלה', 'HaMashtela'],
+    ['הרכבת', 'Montefiore'],
+    ['קרית הממשלה', 'Sarona'],
+    ['שרונה', 'Sarona'],
+    ['נחלת יצחק', 'Nahalat Yitzhak'],
+    ['רמת הטייסים', 'Ramat HaTayasim'],
+    ['נווה צה"ל', 'HaTikva'],
+    ['נווה חן', 'Neve Hen'],
+  ]
+  for (const [raw, expected] of cases) assert.equal(zoneFromSourceName(raw), expected, raw)
+  assert.equal(CANONICAL_NEIGHBORHOODS.length, 25)
+})
+
+test('dropdown keeps the single big zones and no directional subdivisions', () => {
+  for (const z of ['Lev HaIr', 'Old North', 'New North', 'Park Tzameret']) assert.ok(CANONICAL_NEIGHBORHOODS.includes(z as never))
+  assert.ok(CANONICAL_NEIGHBORHOODS.every((z) => !/North$|West$|South$|East$/.test(z) || z === 'Old North' || z === 'New North'))
+  assert.ok(CANONICAL_NEIGHBORHOODS.every((z) => !/[\u0590-\u05FF]/.test(z)))
+})
+
+test('ambiguous words are not read from free text', () => {
+  assert.equal(zone({ text: 'דירה ברחוב מונטיפיורי, מרפסת' }), null)
+  assert.equal(zone({ text: 'מחכה בתקווה לשוכרים, ליד הרכבת' }), null)
+  assert.equal(zone({ text: 'דירה מקסימה בנווה אביבים' }), 'Neve Avivim')
 })
 
 test('explicit neighborhood text is used, "near X" is not', () => {

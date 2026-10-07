@@ -3,27 +3,38 @@
  *
  * Zones are defined as groups of OFFICIAL municipal neighborhoods (Tel Aviv GIS layer 511, `ms_shchuna`),
  * so geography decides membership. To adjust a zone, move municipal numbers between entries.
- * Municipal neighborhoods not listed here (e.g. Tel Baruch, Montefiore, Neve Avivim) resolve to no zone.
+ * Municipal neighborhoods not listed here (e.g. Tel Baruch, Kfar Shalem, Neve Ofer) resolve to no zone.
  *
  * This module is tiny and safe to import from client components; the geography data lives in ./resolve-neighborhood.
  */
 
+/** Dropdown order: roughly north to south. */
 export const CANONICAL_NEIGHBORHOODS = [
+  'Ramat Aviv',
+  'Ramat Aviv HaHadasha',
+  'Neve Avivim',
+  'Neot Afeka',
+  'HaMashtela',
   'Old North',
   'New North',
   'Park Tzameret',
   'Bavli',
   'Lev HaIr',
-  'Neve Tzedek',
+  'Montefiore',
+  'Sarona',
+  'Nahalat Yitzhak',
   'Kerem HaTeimanim',
+  'Neve Tzedek',
   'Florentin',
-  'Jaffa',
-  'Old Jaffa',
+  'Neve Shaanan',
   'Shapira',
   'Yad Eliyahu',
-  'Ramat Aviv',
+  'Ramat HaTayasim',
+  'HaTikva',
+  'Neve Hen',
   'Kiryat Shalom',
-  'Neve Shaanan',
+  'Jaffa',
+  'Old Jaffa',
 ] as const
 
 export type CanonicalNeighborhood = (typeof CANONICAL_NEIGHBORHOODS)[number]
@@ -48,6 +59,16 @@ export const ZONE_MUNICIPAL_NUMBERS: Record<CanonicalNeighborhood, readonly numb
   'Ramat Aviv': [10, 7], // רמת-אביב, רמת אביב ג'
   'Kiryat Shalom': [56],
   'Neve Shaanan': [53],
+  'Ramat Aviv HaHadasha': [2, 4, 5, 6], // צוקי אביב, נופי ים, תכנית ל', כוכב הצפון
+  'Neve Avivim': [9], // נוה אביבים וסביבתה
+  'Neot Afeka': [17, 18], // נאות אפקה ב', נאות אפקה א'
+  HaMashtela: [21],
+  Montefiore: [41],
+  Sarona: [40], // גני שרונה
+  'Nahalat Yitzhak': [57],
+  'Ramat HaTayasim': [60],
+  HaTikva: [63], // includes Neve Tzahal / Beit Yaakov
+  'Neve Hen': [70],
 }
 
 const zoneByMunicipal = new Map<number, CanonicalNeighborhood>()
@@ -115,7 +136,61 @@ const SOURCE_ALIASES: Record<CanonicalNeighborhood, readonly string[]> = {
   'Ramat Aviv': ['Ramat Aviv', 'רמת אביב', 'רמת-אביב', "רמת אביב א'", "רמת אביב ב'", "רמת אביב ג'", 'Ramat Aviv Gimel'],
   'Kiryat Shalom': ['Kiryat Shalom', 'קרית שלום'],
   'Neve Shaanan': ['Neve Shaanan', "Neve Sha'anan", 'נווה שאנן'],
+  'Ramat Aviv HaHadasha': [
+    'Ramat Aviv HaHadasha',
+    'Ramat Aviv Hahadasha',
+    'New Ramat Aviv',
+    'רמת אביב החדשה',
+    'נופי ים',
+    'Nofei Yam',
+    'כוכב הצפון',
+    'Kochav HaTzafon',
+    'צוקי אביב',
+    'Tzukei Aviv',
+    'למד',
+    "ל' החדשה",
+    'ל החדשה',
+    "תכנית ל'",
+    'Lamed',
+  ],
+  'Neve Avivim': ['Neve Avivim', 'נווה אביבים', 'נוה אביבים וסביבתה'],
+  'Neot Afeka': ['Neot Afeka', 'נאות אפקה', "נאות אפקה א'", "נאות אפקה ב'"],
+  HaMashtela: ['HaMashtela', 'Hamashtela', 'המשתלה', 'שכונת המשתלה'],
+  Montefiore: ['Montefiore', 'מונטיפיורי', 'שכונת מונטיפיורי', 'הרכבת'],
+  Sarona: ['Sarona', 'שרונה', 'גני שרונה', 'Gani Sarona', 'קרית הממשלה'],
+  'Nahalat Yitzhak': ['Nahalat Yitzhak', 'Nachalat Yitzhak', 'נחלת יצחק'],
+  'Ramat HaTayasim': ['Ramat HaTayasim', 'Ramat Hatayasim', 'רמת הטייסים'],
+  HaTikva: ['HaTikva', 'Hatikva', 'Hatikvah', 'התקוה', 'התקווה', 'שכונת התקווה', 'שכונת התקוה', 'נווה צה"ל', 'Neve Tzahal', 'בית יעקב'],
+  'Neve Hen': ['Neve Hen', 'Neve Chen', 'נווה חן'],
 }
+
+/**
+ * Valid as a source's neighborhood field, but too ambiguous in free text (common words, landmarks,
+ * or same-named streets elsewhere, e.g. Montefiore St. in Lev HaIr), so never matched in descriptions.
+ */
+const SOURCE_ONLY_ALIASES = new Set(
+  [
+    'למד',
+    'Lamed',
+    "ל' החדשה",
+    'ל החדשה',
+    'המשתלה',
+    'HaMashtela',
+    'Hamashtela',
+    'Montefiore',
+    'מונטיפיורי',
+    'הרכבת',
+    'Sarona',
+    'שרונה',
+    'קרית הממשלה',
+    'התקוה',
+    'התקווה',
+    'HaTikva',
+    'Hatikva',
+    'Hatikvah',
+    'בית יעקב',
+  ].map(geoKey),
+)
 
 /** Every subdivision of these areas belongs to the zone (e.g. "הצפון הישן החלק הדרום מערבי", "לב העיר צפון"). */
 const PREFIX_FAMILIES: [string, CanonicalNeighborhood][] = [
@@ -134,14 +209,10 @@ const PREFIX_FAMILIES: [string, CanonicalNeighborhood][] = [
  * or are too vague. Kept here so the audit can report them as refusals rather than gaps.
  */
 export const REFUSED_SOURCE_NAMES: Record<string, string> = {
-  'רמת אביב החדשה': 'Ramat Aviv HaHadasha is outside the municipal Ramat Aviv polygons (borders Lamed / Tel Baruch).',
   'נחלת בנימין': 'Nahalat Binyamin spans Lev HaIr and Florentin; resolved by house number instead.',
-  'שרונה': 'Sarona is its own municipal neighborhood (Gani Sarona), not part of any zone.',
-  'קרית הממשלה': 'Kiryat HaMemshala sits in Gani Sarona / Montefiore, not part of any zone.',
   'מע"ר צפוני': 'Northern business district, no single zone.',
   'המושבה האמריקאית-גרמנית': 'American-German Colony is on the Jaffa / Neve Tzedek edge; ambiguous.',
-  'הרכבת': 'HaRakevet is ambiguous (railway area, several candidates).',
-  'נווה אביבים': 'Neve Avivim is its own municipal neighborhood, not Ramat Aviv.',
+  'גימל החדשה': 'Could be Ramat Aviv Gimel or Ramat Aviv HaHadasha; ambiguous.',
 }
 
 const aliasLookup = new Map<string, CanonicalNeighborhood>()
@@ -165,9 +236,12 @@ export function isRefusedSourceName(raw: string | null | undefined) {
   return refusedKeys.has(geoKey(raw))
 }
 
-/** All alias spellings per zone, for free-text scanning. */
+/** Alias spellings per zone that are safe for free-text scanning. */
 export function zoneAliasesForText(): [CanonicalNeighborhood, string[]][] {
-  return CANONICAL_NEIGHBORHOODS.map((zone) => [zone, [zone, ...SOURCE_ALIASES[zone]]])
+  return CANONICAL_NEIGHBORHOODS.map((zone) => [
+    zone,
+    [zone, ...SOURCE_ALIASES[zone]].filter((alias) => !SOURCE_ONLY_ALIASES.has(geoKey(alias))),
+  ])
 }
 
 export function isCanonicalCity(city: string | null | undefined) {
