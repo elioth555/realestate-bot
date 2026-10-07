@@ -6,4 +6,8 @@
  */
 export const FACEBOOK_GROUP_URLS: readonly string[] = [
   'https://www.facebook.com/groups/938644249820363',
+  'https://www.facebook.com/groups/TelAvivApartments',
+  'https://www.facebook.com/groups/2240790576133841',
+  'https://www.facebook.com/groups/nadlan247',
+  'https://www.facebook.com/groups/telavivrentals',
 ]
