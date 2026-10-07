@@ -1,5 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { AMENITY_KEYS, type AmenityKey, type Listing } from './listings'
+import { dedupeFacebookListings } from './facebook-dedupe'
+import { mapFacebookItem } from './facebook-mapper'
 import { CANONICAL_CITY, isCanonicalCity } from './geo/canonical-neighborhoods'
 import { resolveNeighborhood } from './geo/resolve-neighborhood'
 import { deriveFeatures } from './matching/features'
@@ -242,8 +244,10 @@ export async function fetchListings(): Promise<Listing[]> {
     `[v0] photo diagnostics: property 24 -> ${diagnosticPhotos.length} photos, first: ${diagnosticPhotos[0] ?? 'none'} (total photo rows: ${photosRes.data.length}, properties with photos: ${photosByProperty.size})`,
   )
 
-  return ((propertiesRes.data ?? []) as PropertyRow[]).map((row) =>
-    rowToListing(row, photosByProperty.get(String(row.id)) ?? []),
+  return dedupeFacebookListings(
+    ((propertiesRes.data ?? []) as PropertyRow[]).map((row) =>
+      rowToListing(row, photosByProperty.get(String(row.id)) ?? []),
+    ),
   )
 }
 
@@ -254,7 +258,32 @@ function firstValidDate(...dates: (string | null | undefined)[]) {
   return null
 }
 
-export function rowToListing(row: PropertyRow, photos: string[] = []): Listing {
+/**
+ * Facebook rows are re-parsed from their stored post text on every read, so parser fixes reach old rows
+ * without rewriting Supabase. Stored Facebook values came from older versions of this same parser, so the
+ * re-parsed street always wins and re-parsed numbers win when found (stored "ארנונה 635" prices, etc.);
+ * the stored value is only a fallback. Phone, city and transaction type keep the stored value.
+ */
+function reparseFacebookRow(row: PropertyRow): PropertyRow {
+  if (!row.description?.trim()) return row
+  const parsed = mapFacebookItem({ text: row.description, url: row.source_url }).property
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v : null)
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+  return {
+    ...row,
+    street: str(parsed.street),
+    city: row.city ?? str(parsed.city),
+    transaction_type: row.transaction_type ?? str(parsed.transaction_type),
+    price: num(parsed.price) ?? toNumber(row.price),
+    rooms: num(parsed.rooms) ?? toNumber(row.rooms),
+    surface_m2: num(parsed.surface_m2) ?? toNumber(row.surface_m2),
+    floor: num(parsed.floor) ?? toNumber(row.floor),
+    phone: row.phone?.trim() || str(parsed.phone),
+  }
+}
+
+export function rowToListing(storedRow: PropertyRow, photos: string[] = []): Listing {
+  const row = normalizeSource(storedRow.source) === 'facebook' ? reparseFacebookRow(storedRow) : storedRow
   const price = toNumber(row.price)
   const rooms = toNumber(row.rooms)
   const surface = toNumber(row.surface_m2)

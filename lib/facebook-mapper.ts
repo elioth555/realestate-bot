@@ -1,5 +1,6 @@
 import { requiredFieldsFor, type PropertyInput } from '@/lib/import-listing'
 import type { ProtectedSpaceType } from './listings'
+import { findAddressesInText, isKnownStreet } from './geo/resolve-neighborhood'
 import { deriveFeatures, type DerivedFeatures } from './matching/features'
 import { CITY_ALIASES, NEIGHBORHOOD_ALIASES, normalizeCity, normalizeNeighborhood, normalizePropertyType } from './normalize'
 
@@ -185,6 +186,8 @@ const ROOMS_HE = new RegExp(
 )
 const ROOMS_EN = new RegExp(`${RANGE_BEFORE}(\\d{1,2}(?:\\.5)?)\\s*-?\\s*rooms?\\b`, 'iu')
 const ROOM_AND_HALF = new RegExp(`${BEFORE}${HE_PREFIX}חדר\\s+וחצי${AFTER}`, 'u')
+// "דירת חדר" / "חדר אחד" = a one-room apartment. "חדר בדירת שותפים" (a room in a shared flat) is not matched.
+const ONE_ROOM = new RegExp(`${BEFORE}${HE_PREFIX}(?:דירת|יחידת)\\s+חדר${AFTER}(?!\\s+(?:שינה|רחצה|ב|ו))|${BEFORE}חדר\\s+אחד${AFTER}|\\bone[\\s-]room\\b`, 'iu')
 
 function parseRooms(text: string): number | null {
   const he = text.match(ROOMS_HE)
@@ -193,6 +196,7 @@ function parseRooms(text: string): number | null {
     return rooms >= 1 && rooms <= 15 ? rooms : null
   }
   if (ROOM_AND_HALF.test(text)) return 1.5
+  if (ONE_ROOM.test(text)) return 1
   const en = text.match(ROOMS_EN)
   if (en) {
     const rooms = Number(en[1])
@@ -274,17 +278,28 @@ function toPrice(num: string, mult: string | undefined): number | null {
   return Number.isFinite(value) && value >= MIN_PRICE && value <= MAX_PRICE ? Math.round(value) : null
 }
 
+// "ארנונה כ-635 ₪", "ועד בית 150 ש"ח", "חשבונות 300 ₪" are monthly fees, not the price.
+const FEE_BEFORE = /(?:ארנונה|ועד|וועד|חשבונות|מים|חשמל|גז|אינטרנט|ניקיון|arnona|tax|bills|utilities)[^\d\n|]{0,14}$/iu
+// "48,000 ש"ח למ"ר" is a price per square meter.
+const PER_SQM_AFTER = new RegExp(`^[^\\n]{0,12}?(?:ל|per\\s*)(?:מ${QUOTE}?ר|מטר|sqm|m2)`, 'iu')
+
+function isFeeOrUnitPrice(text: string, index: number, length: number) {
+  return FEE_BEFORE.test(text.slice(Math.max(0, index - 24), index)) || PER_SQM_AFTER.test(text.slice(index + length))
+}
+
 /** Phones must already be masked out of `text`. Contextual prices win over bare comma-formatted numbers. */
 function parsePrice(text: string): number | null {
   let best: { index: number; value: number } | null = null
   for (const re of PRICE_CONTEXT) {
     for (const m of text.matchAll(re)) {
+      if (isFeeOrUnitPrice(text, m.index!, m[0].length)) continue
       const value = toPrice(m[1], m[2])
       if (value !== null && (!best || m.index! < best.index)) best = { index: m.index!, value }
     }
   }
   if (best) return best.value
   for (const m of text.matchAll(PRICE_BARE)) {
+    if (isFeeOrUnitPrice(text, m.index!, m[0].length)) continue
     const value = toPrice(m[1], undefined)
     if (value !== null) return value
   }
@@ -293,37 +308,88 @@ function parsePrice(text: string): number | null {
 
 // ---------- street ----------
 
-const STREET_HE = new RegExp(
-  `${BEFORE}(?:[בל])?(?:רחוב|רח${QUOTE})\\s*([\\u05D0-\\u05EA${QUOTE.slice(1, -1)}\\-]+(?:\\s+[\\u05D0-\\u05EA${QUOTE.slice(1, -1)}\\-]+){0,2})(?:\\s+(\\d{1,4}[\\u05D0-\\u05EA]?)(?![\\d\\p{L}]))?`,
-  'u',
-)
-const STREET_EN = /\b(?:(\d{1,4})\s+)?([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\s+(?:St\.?|Street)\b/
+// "רחוב X", "ברחוב X", "ברח' X", "בשדרות X"
+const STREET_MARKER = new RegExp(`${BEFORE}(?:[בל])?(?:(רחוב|רח${QUOTE})|(שדרות|שד${QUOTE}))(?=\\s|${QUOTE})`, 'gu')
+const STREET_EN = /\b(?:(\d{1,4})\s+)?(?!(?:January|February|March|April|May|June|July|August|September|October|November|December)\b)([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\s+(?:St\.?|Street)\b/
+const MAX_STREET_TOKENS = 4
+/** Words that end a street name: other fields, prepositions, listing vocabulary. */
 const STREET_STOPWORDS = new Set([
-  'ליד', 'פינת', 'קומה', 'בקומה', 'עם', 'יש', 'דירה', 'דירת', 'חדרים', 'להשכרה', 'למכירה',
-  'מול', 'כניסה', 'מחיר', 'שכירות', 'מתוך', 'בשכונת', 'שכונת', 'באזור', 'אזור', 'קרוב',
+  'ליד', 'פינת', 'קומה', 'בקומה', 'עם', 'יש', 'דירה', 'דירת', 'חדרים', 'חדר', 'להשכרה', 'למכירה',
+  'מול', 'כניסה', 'מחיר', 'שכירות', 'מתוך', 'בשכונת', 'שכונת', 'שבשכונת', 'באזור', 'אזור', 'קרוב',
+  'סמוך', 'בסמוך', 'לרחוב', 'במרחק', 'מרחק', 'בקרבת', 'ובקרבה', 'בקרבה', 'קרובה', 'צמוד', 'בבניין',
+  'בניין', 'דופלקס', 'פנטהאוז', 'פנטהאוס', 'סטודיו', 'מרוהט', 'מרוהטת', 'משופץ', 'משופצת', 'חדשה',
+  'חדש', 'במיקום', 'מיקום', 'בלב', 'לב', 'דקה', 'דקות', 'הליכה', 'תל', 'ת"א', 'ת״א', 'בת"א', 'בת״א',
+  'יפו', 'ביפו', 'בצפון', 'בדרום', 'במרכז', 'הישן', 'החדש', 'בין', 'על', 'של', 'גם', 'או', 'כולל',
 ])
+/** "ברחוב שקט" = "on a quiet street": an adjective, not a name. As the first word it means there is no street here. */
+const STREET_DESCRIPTORS = new Set([
+  'שקט', 'השקט', 'שקטה', 'ירוק', 'וירוק', 'הירוק', 'קסום', 'הקסום', 'נעים', 'פסטורלי', 'הפסטורלי',
+  'מבוקש', 'המבוקש', 'ראשי', 'צדדי', 'פנימי', 'יפה', 'מקסים', 'ציורי', 'מרכזי', 'המרכזי', 'הומה',
+  'סואן', 'שקט,', 'ללא', 'מוצל', 'חד', 'סטרי', 'ומבוקש', 'ושקט', 'מטופח', 'מהמם', 'חלומי', 'שלו',
+])
+const EDGE_PUNCT = new RegExp(`^[^\\p{L}\\p{N}]+|[^\\p{L}\\p{N}]+$`, 'gu')
+const CLAUSE_END = /[,.!?|:;)(\/\u2013\u2014]$/
+const UNIT_TOKEN = new RegExp(`^(?:חד|חדר|מ${QUOTE}?ר|מטר|קומ|₪|ש${QUOTE}?ח|אלף|rooms?|sqm|m2)`, 'iu')
+
+type StreetCandidate = { name: string; number: string | null }
+
+/** Words after one "רחוב" marker → a cleaned street name (and number only when it directly follows the name). */
+function readStreetAfter(text: string, from: number, citySpans: Span[]): StreetCandidate | null {
+  const raw = text.slice(from, from + 80).split(/\n/)[0]
+  const tokens: { word: string; start: number; endsClause: boolean; leadingPunct: boolean }[] = []
+  for (const m of raw.matchAll(/\S+/g)) {
+    const word = m[0].replace(EDGE_PUNCT, '')
+    tokens.push({ word, start: from + m.index!, endsClause: CLAUSE_END.test(m[0]), leadingPunct: /^[^\p{L}\p{N}"'\u05F3\u05F4]/u.test(m[0]) })
+    if (tokens.length > MAX_STREET_TOKENS + 1) break
+  }
+  const kept: string[] = []
+  let number: string | null = null
+  for (let i = 0; i < tokens.length; i++) {
+    const { word, start, endsClause, leadingPunct } = tokens[i]
+    if (!word) {
+      if (kept.length) break
+      continue // leading quote / dash: `ברחוב " סימטת הש"ך "`
+    }
+    if (kept.length && leadingPunct) break // "בן יהודה /בוגרשוב"
+    if (/^\d{1,4}[\u05D0-\u05EA]?$/.test(word)) {
+      if (kept.length && !UNIT_TOKEN.test(tokens[i + 1]?.word ?? '')) number = word.replace(/\D/g, '')
+      break
+    }
+    if (/\d/.test(word)) break // "ב2900"
+    if (STREET_DESCRIPTORS.has(word)) {
+      if (!kept.length) return null
+      break
+    }
+    if (STREET_STOPWORDS.has(word)) break
+    if (kept.length && citySpans.some((s) => start < s.end && s.start < start + word.length)) break
+    kept.push(word)
+    if (endsClause || kept.length >= MAX_STREET_TOKENS) break
+  }
+  if (!kept.length) return null
+
+  // Prefer the longest leading run of words that is an official Tel Aviv street ("נחלת בנימין פלורנטין" → "נחלת בנימין").
+  // Two words are never cut to one ("יעקב מוזר" stays whole even though "יעקב" alone is also a street).
+  const shortest = kept.length <= 2 ? kept.length : 1
+  for (let n = kept.length; n >= shortest; n--) {
+    const name = kept.slice(0, n).join(' ')
+    if (isKnownStreet(name)) return { name, number: n === kept.length ? number : null }
+  }
+  // Not a Tel Aviv street (other city, or a name missing from the snapshot): keep at most two words.
+  const name = kept.slice(0, 2).join(' ')
+  if (name.replace(/[^\p{L}]/gu, '').length < 2) return null
+  return { name, number: kept.length <= 2 ? number : null }
+}
 
 function parseStreet(text: string, citySpans: Span[]): string | null {
-  const he = STREET_HE.exec(text)
-  if (he) {
-    const nameStart = he.index + he[0].indexOf(he[1])
-    const tokens = he[1].split(/\s+/)
-    const kept: string[] = []
-    let cursor = nameStart
-    let cut = false
-    for (const token of tokens) {
-      const tokenStart = text.indexOf(token, cursor)
-      cursor = tokenStart + token.length
-      if (STREET_STOPWORDS.has(token) || citySpans.some((s) => tokenStart < s.end && s.start < cursor)) {
-        cut = true
-        break
-      }
-      kept.push(token)
-    }
-    const name = kept.join(' ').replace(/[-]+$/, '').trim()
-    if (!name) return null
-    return !cut && he[2] ? `${name} ${he[2]}` : name
+  for (const m of text.matchAll(STREET_MARKER)) {
+    const candidate = readStreetAfter(text, m.index! + m[0].length, citySpans)
+    if (!candidate) continue
+    const name = m[2] && !isKnownStreet(candidate.name) ? `שדרות ${candidate.name}` : candidate.name
+    return candidate.number ? `${name} ${candidate.number}` : name
   }
+  // No marker: only an official Tel Aviv street directly followed by a house number ("בדיזנגוף 214").
+  const address = findAddressesInText(text.replace(/(^|\s)[בל][-\u05BE](?=[\u05D0-\u05EA])/g, '$1'))[0]
+  if (address) return `${address.name} ${address.number}`
   const en = text.match(STREET_EN)
   if (en) return en[1] ? `${en[2]} ${en[1]}` : en[2]
   return null

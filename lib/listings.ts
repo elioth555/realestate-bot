@@ -89,6 +89,8 @@ export type Listing = {
   publishedMinutesAgo: number
   photos: string[]
   image: string | null
+  /** Other Facebook post URLs for the same apartment, grouped at read time (lib/facebook-dedupe). */
+  alsoPostedAt?: string[]
 }
 
 export function buildCityIndex(listings: Listing[]) {
