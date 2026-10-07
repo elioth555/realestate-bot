@@ -1,0 +1,46 @@
+{
+  "rent_full": {
+    "time": "2026-10-05T18:00:00.000Z",
+    "authorName": "Synthetic A",
+    "text": "להשכרה בפלורנטין! דירת 3.5 חדרים ברחוב ויטל 5, תל אביב. 75 מ\"ר, קומה 2 מתוך 4 עם מעלית. מרפסת שמש, ממ\"ד, חניה בטאבו. מרוהטת. 7,800 ₪ לחודש. כניסה מיידית. לפרטים: 054-123-4567",
+    "likesCount": 3,
+    "commentsCount": 1,
+    "url": "https://www.facebook.com/groups/111111111111111/posts/222222222222222/?comment_id=9"
+  },
+  "sale_negatives": {
+    "time": "2026-10-04T08:15:00.000Z",
+    "authorName": "Synthetic B",
+    "text": "למכירה דירת 4 חדרים ברחוב ארלוזורוב 120 תל-אביב, 110 מ״ר, קומה שלישית. אין חניה, אין מעלית. מחיר: 4,950,000 ש״ח. 052-9876543",
+    "url": "https://www.facebook.com/groups/111111111111111/posts/333333333333333/"
+  },
+  "english_miklat": {
+    "time": "2026-10-03T12:00:00.000Z",
+    "authorName": "Synthetic C",
+    "text": "For rent - 2 rooms apartment in Tel Aviv, ground floor, 45 sqm. ללא ממ\"ד, יש מקלט בבניין. בלי מרפסת. ללא בעלי חיים. 5.2K per month",
+    "url": "https://www.facebook.com/groups/111111111111111/posts/444444444444444/"
+  },
+  "garden_pets_mamak": {
+    "time": "2026-10-02T09:30:00.000Z",
+    "authorName": "Synthetic D",
+    "text": "דירת גן להשכרה ביפו, 3 חדרים, גינה 40 מ\"ר, בעלי חיים מותרים, ממ\"ק בקומה. 9500 ש\"ח",
+    "url": "https://www.facebook.com/groups/222222222222222/posts/555555555555555/"
+  },
+  "phone_not_price": {
+    "time": "2026-10-01T20:00:00.000Z",
+    "authorName": "Synthetic E",
+    "text": "סאבלט בתל אביב לחודש אוגוסט, 2 חדרים. מחיר 6000. להתקשר 0501234567 או +972-3-6123456",
+    "url": "https://www.facebook.com/groups/222222222222222/posts/666666666666666/"
+  },
+  "seeker": {
+    "time": "2026-10-01T07:00:00.000Z",
+    "authorName": "Synthetic F",
+    "text": "מחפשת דירה להשכרה בתל אביב עד 8,000 ₪, 2-3 חדרים, חייבת חניה",
+    "url": "https://www.facebook.com/groups/222222222222222/posts/777777777777777/"
+  },
+  "unclear": {
+    "time": "2026-09-30T07:00:00.000Z",
+    "authorName": "Synthetic G",
+    "text": "דירה מהממת, פרטים בפרטי",
+    "url": "https://www.facebook.com/groups/222222222222222/posts/888888888888888/"
+  }
+}
