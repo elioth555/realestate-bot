@@ -201,7 +201,8 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
       madlanUpdating={madlan.isUpdating}
       onRefreshFacebook={handleRefreshFacebook}
       facebookStarting={facebook.isStarting}
-      facebookUpdating={facebook.isUpdating} />
+      facebookUpdating={facebook.isUpdating}
+      priceStep={scope === 'sale' ? 50_000 : 500} />
   )
 
   const tabs: { key: TabKey; label: string; count: number }[] = [

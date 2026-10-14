@@ -148,15 +148,28 @@ const RENT_RE = new RegExp(
   'iu',
 )
 // Explicit wording only. Investment/residence language ("להשקעה", "משקיעים", "למגורים") is deliberately NOT a sale signal.
-const SALE_RE = new RegExp(`${BEFORE}(?:[לו])?מכירה${AFTER}|${BEFORE}נמכרת${AFTER}|\\bsale\\b`, 'iu')
+const SALE_RE = new RegExp(
+  `${BEFORE}(?:[לו])?מכירה${AFTER}|${BEFORE}נמכרת${AFTER}|${BEFORE}(?:[לו])?רכיש(?:ה|ת)${AFTER}|${BEFORE}(?:ה)?פרי?[-־]?סייל${AFTER}|\\bsale\\b|\\bpre-?sale\\b`,
+  'iu',
+)
+// Mentions of the other deal type that describe something else: "furniture for sale" in a rental,
+// "פוטנציאל גבוה להשכרה" (rental potential) in a sale.
+const RENT_NEUTRAL_RE = new RegExp(
+  `${BEFORE}(?:[וה])?פוטנציאל[^.\\n|]{0,30}?(?:[לב])?השכרה${AFTER}|\\brental\\s+(?:potential|income|yield)\\b`,
+  'giu',
+)
+const SALE_NEUTRAL_RE = new RegExp(
+  `\\b(?:furniture|appliances?|items?)\\b[^.\\n]{0,25}?\\bfor\\s+sale\\b|${BEFORE}(?:רהיטים|ריהוט)[^.\\n]{0,15}?למכירה${AFTER}`,
+  'giu',
+)
 const SEEKING_RE = new RegExp(
   `${BEFORE}(?:מחפש|מחפשת|מחפשים|מחפשות|דרוש|דרושה)${AFTER}|\\blooking\\s+for\\b|\\bsearching\\s+for\\b`,
   'iu',
 )
 
 function detectTransaction(text: string): 'rent' | 'sale' | null {
-  const rent = RENT_RE.test(text)
-  const sale = SALE_RE.test(text)
+  const rent = RENT_RE.test(text.replace(RENT_NEUTRAL_RE, ' '))
+  const sale = SALE_RE.test(text.replace(SALE_NEUTRAL_RE, ' '))
   if (rent === sale) return null
   return rent ? 'rent' : 'sale'
 }
@@ -291,21 +304,33 @@ function isFeeOrUnitPrice(text: string, index: number, length: number) {
   return FEE_BEFORE.test(text.slice(Math.max(0, index - 24), index)) || PER_SQM_AFTER.test(text.slice(index + length))
 }
 
+// A rent is never ≥ ₪100,000/month and a sale is never below it, so amounts on the wrong side of this line
+// are something else in the post: "השקעה של 2 מיליון ₪" in a rental, "מושכרת ב־4,750 ₪" in a sale.
+const RENT_SALE_PRICE_LINE = 100_000
+
+function fitsDealType(value: number, dealType: 'rent' | 'sale' | null) {
+  if (dealType === 'rent') return value < RENT_SALE_PRICE_LINE
+  if (dealType === 'sale') return value >= RENT_SALE_PRICE_LINE
+  return true
+}
+
 /** Phones must already be masked out of `text`. Contextual prices win over bare comma-formatted numbers. */
-function parsePrice(text: string): number | null {
+function parsePrice(text: string, dealType: 'rent' | 'sale' | null = null): number | null {
   let best: { index: number; value: number } | null = null
   for (const re of PRICE_CONTEXT) {
     for (const m of text.matchAll(re)) {
       if (isFeeOrUnitPrice(text, m.index!, m[0].length)) continue
       const value = toPrice(m[1], m[2], m[3])
-      if (value !== null && (!best || m.index! < best.index)) best = { index: m.index!, value }
+      if (value !== null && fitsDealType(value, dealType) && (!best || m.index! < best.index)) {
+        best = { index: m.index!, value }
+      }
     }
   }
   if (best) return best.value
   for (const m of text.matchAll(PRICE_BARE)) {
     if (isFeeOrUnitPrice(text, m.index!, m[0].length)) continue
     const value = toPrice(m[1], undefined)
-    if (value !== null) return value
+    if (value !== null && fitsDealType(value, dealType)) return value
   }
   return null
 }
@@ -323,12 +348,12 @@ const STREET_STOPWORDS = new Set([
   'סמוך', 'בסמוך', 'לרחוב', 'במרחק', 'מרחק', 'בקרבת', 'ובקרבה', 'בקרבה', 'קרובה', 'צמוד', 'בבניין',
   'בניין', 'דופלקס', 'פנטהאוז', 'פנטהאוס', 'סטודיו', 'מרוהט', 'מרוהטת', 'משופץ', 'משופצת', 'חדשה',
   'חדש', 'במיקום', 'מיקום', 'בלב', 'לב', 'דקה', 'דקות', 'הליכה', 'תל', 'ת"א', 'ת״א', 'בת"א', 'בת״א',
-  'יפו', 'ביפו', 'בצפון', 'בדרום', 'במרכז', 'הישן', 'החדש', 'בין', 'על', 'של', 'גם', 'או', 'כולל',
+  'יפו', 'ביפו', 'בצפון', 'בדרום', 'במרכז', 'הישן', 'החדש', 'בי��', 'על', 'של', 'גם', 'או', 'כולל',
 ])
 /** "ברחוב שקט" = "on a quiet street": an adjective, not a name. As the first word it means there is no street here. */
 const STREET_DESCRIPTORS = new Set([
   'שקט', 'השקט', 'שקטה', 'ירוק', 'וירוק', 'הירוק', 'קסום', 'הקסום', 'נעים', 'פסטורלי', 'הפסטורלי',
-  'מבוקש', 'המבוקש', 'ראשי', 'צדדי', 'פנימי', 'יפה', 'מקסים', 'ציורי', 'מרכזי', 'המרכזי', 'הומה',
+  'מ��וקש', 'המבוקש', 'ראשי', 'צדדי', 'פנימי', 'יפה', 'מקסים', 'ציורי', 'מרכזי', 'המרכזי', 'הומה',
   'סואן', 'שקט,', 'ללא', 'מוצל', 'חד', 'סטרי', 'ו��בוקש', 'ושקט', 'מטופח', 'מהמם', 'חלומי', 'שלו',
 ])
 const EDGE_PUNCT = new RegExp(`^[^\\p{L}\\p{N}]+|[^\\p{L}\\p{N}]+$`, 'gu')
@@ -439,7 +464,7 @@ export function mapFacebookItem(item: FacebookItem): FacebookMapResult {
     neighborhood: neighborhoodSpans[0]?.canonical ?? null,
     street: parseStreet(withoutPhones, citySpans),
     phone: phones[0] ?? null,
-    price: parsePrice(withoutPhones),
+    price: parsePrice(withoutPhones, transactionType),
     rooms: parseRooms(withoutPhones),
     surface_m2: parseSurface(withoutPhones),
     floor,

@@ -262,19 +262,33 @@ function firstValidDate(...dates: (string | null | undefined)[]) {
  * Facebook rows are re-parsed from their stored post text on every read, so parser fixes reach old rows
  * without rewriting Supabase. Stored Facebook values came from older versions of this same parser, so the
  * re-parsed street always wins and re-parsed numbers win when found (stored "ארנונה 635" prices, etc.);
- * the stored value is only a fallback. Phone, city and transaction type keep the stored value.
+ * the stored value is only a fallback. The re-parsed transaction type also wins when the text is decisive,
+ * so Rent/Sale filtering never runs on an older parser's guess. Phone and city keep the stored value.
  */
+/**
+ * Used only when the post text states no deal type: an older parser's stored guess is overridden when the
+ * price makes it impossible (no Tel Aviv rental costs ₪400,000+/month, no sale costs under ₪30,000).
+ */
+export function dealTypeConsistentWithPrice(stored: string | null, price: number | null): string | null {
+  const deal = normalizeDealType(stored)
+  if (price === null || price <= 0) return stored
+  if (deal === 'rent' && price >= 400_000) return 'sale'
+  if (deal === 'sale' && price < 30_000) return 'rent'
+  return stored
+}
+
 function reparseFacebookRow(row: PropertyRow): PropertyRow {
   if (!row.description?.trim()) return row
   const parsed = mapFacebookItem({ text: row.description, url: row.source_url }).property
   const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v : null)
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+  const price = num(parsed.price) ?? toNumber(row.price)
   return {
     ...row,
     street: str(parsed.street),
     city: row.city ?? str(parsed.city),
-    transaction_type: row.transaction_type ?? str(parsed.transaction_type),
-    price: num(parsed.price) ?? toNumber(row.price),
+    transaction_type: str(parsed.transaction_type) ?? dealTypeConsistentWithPrice(row.transaction_type, price),
+    price,
     rooms: num(parsed.rooms) ?? toNumber(row.rooms),
     surface_m2: num(parsed.surface_m2) ?? toNumber(row.surface_m2),
     floor: num(parsed.floor) ?? toNumber(row.floor),

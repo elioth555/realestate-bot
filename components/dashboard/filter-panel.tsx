@@ -34,6 +34,7 @@ type FilterPanelProps = {
   facebookStarting?: boolean
   /** A background Facebook update is running. */
   facebookUpdating?: boolean
+  priceStep?: number
 }
 
 type Option = { label: string; value: string | null }
@@ -88,6 +89,7 @@ function RangeInputs({
   maxValue,
   onMin,
   onMax,
+  step,
 }: {
   label: string
   unit: string
@@ -96,6 +98,7 @@ function RangeInputs({
   maxValue: string
   onMin: (v: string) => void
   onMax: (v: string) => void
+  step?: number
 }) {
   return (
     <fieldset className="space-y-1.5">
@@ -111,6 +114,7 @@ function RangeInputs({
               type="number"
               inputMode="numeric"
               min={0}
+              step={step}
               placeholder={bound === 'min' ? 'Min' : 'Max'}
               value={bound === 'min' ? minValue : maxValue}
               onChange={(e) => (bound === 'min' ? onMin : onMax)(e.target.value)}
@@ -210,6 +214,7 @@ export function FilterPanel({
   onRefreshFacebook,
   facebookStarting = false,
   facebookUpdating = false,
+  priceStep = 500,
 }: FilterPanelProps) {
   const set = <K extends keyof Filters>(key: K, value: Filters[K]) => onChange({ ...filters, [key]: value })
 
@@ -223,6 +228,8 @@ export function FilterPanel({
 
   return (
     <form
+      // The price step only drives the arrow keys; typed values like 11,250 must still submit.
+      noValidate
       className="flex flex-col gap-5"
       onSubmit={(e) => {
         e.preventDefault()
@@ -270,6 +277,7 @@ export function FilterPanel({
         maxValue={filters.maxPrice}
         onMin={(v) => set('minPrice', v)}
         onMax={(v) => set('maxPrice', v)}
+        step={priceStep}
       />
 
       <fieldset>
