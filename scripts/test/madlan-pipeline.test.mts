@@ -173,9 +173,10 @@ test('neighborhoods: one run each in Hebrew; unknown or too many is an error, ne
   assert.ok(!tooMany.ok)
 })
 
-test('unsupported city / sale are rejected', () => {
+test('unsupported city / deal type are rejected; sale is accepted', () => {
   assert.ok(!validateMadlanCriteria({ city: 'Haifa', transaction_type: 'rent' }).ok)
-  assert.ok(!validateMadlanCriteria({ city: 'Tel Aviv', transaction_type: 'sale' }).ok)
+  assert.ok(!validateMadlanCriteria({ city: 'Tel Aviv', transaction_type: 'lease' }).ok)
+  assert.ok(validateMadlanCriteria({ city: 'Tel Aviv', transaction_type: 'sale' }).ok)
 })
 
 test('startMadlanRuns posts one run per input to the configured actor (fetch stubbed)', async () => {
