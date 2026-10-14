@@ -7,11 +7,45 @@ const NEIGHBORHOOD_ID_PATTERN = /^\d{1,6}$/
 const RUN_ID_PATTERN = /^[A-Za-z0-9]{8,32}$/
 const APIFY_API = 'https://api.apify.com/v2'
 
-// Old Yad2 URL format known to be accepted by the Apify actor. Only Tel Aviv rentals are supported for now.
-const CITY_CONFIG: Record<string, { path: string; params: Record<string, string> }> = {
-  'tel aviv': { path: 'rent', params: { topArea: '2', area: '1', city: '5000' } },
+// Old Yad2 URL format known to be accepted by the Apify actor (Tel Aviv only). The actor schema accepts both
+// /realestate/rent and /realestate/forsale with the same query parameters.
+const CITY_CONFIG: Record<string, { params: Record<string, string> }> = {
+  'tel aviv': { params: { topArea: '2', area: '1', city: '5000' } },
 }
-const SUPPORTED_TRANSACTION_TYPES = ['rent']
+export type Yad2TransactionType = 'rent' | 'sale'
+const PATH_BY_TRANSACTION_TYPE: Record<Yad2TransactionType, string> = { rent: 'rent', sale: 'forsale' }
+const TRANSACTION_TYPE_BY_PATH: Record<string, Yad2TransactionType> = { rent: 'rent', forsale: 'sale' }
+const SUPPORTED_TRANSACTION_TYPES = ['rent', 'sale']
+
+/** Deal type of a Yad2 search URL, from its `/realestate/<rent|forsale>` path. Null if it is neither. */
+export function yad2TransactionTypeFromUrl(url: string): Yad2TransactionType | null {
+  try {
+    const match = new URL(url).pathname.match(/^\/realestate\/([a-z]+)\/?$/i)
+    return match ? (TRANSACTION_TYPE_BY_PATH[match[1].toLowerCase()] ?? null) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Deal type of a whole run, from the `start_urls` it was started with. Items carry no deal-type field
+ * (item_url is just /item/<id>), so the run input is the only reliable source.
+ */
+export function yad2TransactionTypeFromActorInput(
+  input: unknown,
+): { ok: true; transactionType: Yad2TransactionType } | { ok: false; error: string } {
+  const startUrls = (input as { start_urls?: unknown } | null)?.start_urls
+  if (!Array.isArray(startUrls) || startUrls.length === 0) return { ok: false, error: 'Run input has no start_urls.' }
+  const types = new Set<Yad2TransactionType | null>(
+    startUrls.map((entry) => {
+      const url = typeof entry === 'string' ? entry : (entry as { url?: unknown } | null)?.url
+      return typeof url === 'string' ? yad2TransactionTypeFromUrl(url) : null
+    }),
+  )
+  if (types.has(null)) return { ok: false, error: 'A start URL is neither /realestate/rent nor /realestate/forsale.' }
+  if (types.size !== 1) return { ok: false, error: 'Run mixes rent and sale start URLs.' }
+  return { ok: true, transactionType: [...types][0] as Yad2TransactionType }
+}
 
 export const ACTIVE_RUN_STATUSES = ['READY', 'RUNNING']
 export const TERMINAL_RUN_STATUSES = ['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT']
@@ -23,6 +57,7 @@ const MAX_RUNS_PER_SEARCH = 6
 
 export type SearchCriteria = {
   cityKey: string
+  transactionType: Yad2TransactionType
   minRooms: number | null
   maxRooms: number | null
   maxPrice: number | null
@@ -96,7 +131,7 @@ export function validateCriteria(
     return {
       ok: false,
       status: 400,
-      errors: [`Unsupported transaction_type "${String(body.transaction_type ?? '')}". Supported: rent.`],
+      errors: [`Unsupported transaction_type "${String(body.transaction_type ?? '')}". Supported: rent, sale.`],
     }
   }
 
@@ -148,12 +183,15 @@ export function validateCriteria(
       ],
     }
   }
-  return { ok: true, data: { cityKey, minRooms, maxRooms, maxPrice, neighborhoods } }
+  return {
+    ok: true,
+    data: { cityKey, transactionType: transactionType as Yad2TransactionType, minRooms, maxRooms, maxPrice, neighborhoods },
+  }
 }
 
 function buildUrlFor(criteria: SearchCriteria, neighborhoodId: string | null) {
   const city = CITY_CONFIG[criteria.cityKey]
-  const url = new URL(`https://www.yad2.co.il/realestate/${city.path}`)
+  const url = new URL(`https://www.yad2.co.il/realestate/${PATH_BY_TRANSACTION_TYPE[criteria.transactionType]}`)
   for (const [key, value] of Object.entries(city.params)) url.searchParams.set(key, value)
   if (neighborhoodId) url.searchParams.set('neighborhood', neighborhoodId)
   if (criteria.minRooms !== null) url.searchParams.set('minRooms', String(criteria.minRooms))

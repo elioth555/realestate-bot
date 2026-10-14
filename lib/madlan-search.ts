@@ -19,7 +19,8 @@ const TEL_AVIV_KEYS = new Set(['tel aviv', 'tel aviv yafo', 'tel aviv jaffa', 't
  */
 export type MadlanActorInput = {
   city: string
-  dealType: 'rent'
+  /** Actor enum: "rent" (שכירות) or "buy" (מכירה). */
+  dealType: 'rent' | 'buy'
   maxItems: number
   minPrice?: number
   maxPrice?: number
@@ -34,6 +35,7 @@ export type MadlanActorInput = {
 
 export type MadlanCriteria = {
   city: string
+  transactionType: 'rent' | 'sale'
   minPrice: number | null
   maxPrice: number | null
   minRooms: number | null
@@ -99,11 +101,11 @@ export function validateMadlanCriteria(
     return { ok: false, status: 400, errors: [`Unsupported city "${String(body.city ?? '')}". Supported: Tel Aviv.`] }
   }
   const transactionType = typeof body.transaction_type === 'string' ? body.transaction_type.trim().toLowerCase() : ''
-  if (transactionType !== 'rent') {
+  if (transactionType !== 'rent' && transactionType !== 'sale') {
     return {
       ok: false,
       status: 400,
-      errors: [`Unsupported transaction_type "${String(body.transaction_type ?? '')}". Supported: rent.`],
+      errors: [`Unsupported transaction_type "${String(body.transaction_type ?? '')}". Supported: rent, sale.`],
     }
   }
 
@@ -154,6 +156,7 @@ export function validateMadlanCriteria(
     ok: true,
     data: {
       city: CITY_INPUT['tel aviv'],
+      transactionType,
       minPrice,
       maxPrice,
       minRooms,
@@ -169,7 +172,11 @@ export function validateMadlanCriteria(
 
 /** One actor input per neighborhood, or a single city-wide input. Unset filters are omitted, not sent as false. */
 export function buildMadlanActorInputs(criteria: MadlanCriteria): MadlanActorInput[] {
-  const base: MadlanActorInput = { city: criteria.city, dealType: 'rent', maxItems: MADLAN_MAX_ITEMS_PER_RUN }
+  const base: MadlanActorInput = {
+    city: criteria.city,
+    dealType: criteria.transactionType === 'sale' ? 'buy' : 'rent',
+    maxItems: MADLAN_MAX_ITEMS_PER_RUN,
+  }
   if (criteria.minPrice !== null) base.minPrice = Math.round(criteria.minPrice)
   if (criteria.maxPrice !== null) base.maxPrice = Math.round(criteria.maxPrice)
   if (criteria.minRooms !== null) base.minRooms = criteria.minRooms

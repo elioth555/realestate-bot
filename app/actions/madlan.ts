@@ -37,13 +37,13 @@ export async function startMadlanSearch(input: MadlanSearchInput): Promise<Start
         : 'Choose Tel Aviv as the city to refresh Madlan.',
     }
   }
-  if (input.transactionType !== 'rent') {
-    return { ok: false, kind: 'unsupported', message: 'Live Madlan refresh supports rentals only.' }
+  if (input.transactionType !== 'rent' && input.transactionType !== 'sale') {
+    return { ok: false, kind: 'invalid', message: 'Choose Rent or Sale to refresh Madlan.' }
   }
 
   const validation = validateMadlanCriteria({
     city: input.city,
-    transaction_type: 'rent',
+    transaction_type: input.transactionType,
     min_price: input.minPrice,
     max_price: input.maxPrice,
     min_rooms: input.minRooms,

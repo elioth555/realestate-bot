@@ -4,6 +4,7 @@ import { validatePropertyInput } from '@/lib/import-listing'
 import { getAdminClient, upsertPropertyBySourceUrl } from '@/lib/upsert-property'
 import { mapYad2Item, type Yad2Item } from '@/lib/yad2-mapper'
 import { extractYad2ImageUrls, replacePropertyPhotos, resolvePhotoTable } from '@/lib/yad2-photos'
+import { yad2TransactionTypeFromActorInput, type Yad2TransactionType } from '@/lib/yad2-search'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -26,15 +27,30 @@ function tokensMatch(provided: string, expected: string) {
 }
 
 function extractRunInfo(payload: unknown) {
-  if (!payload || typeof payload !== 'object') return { datasetId: null, eventType: null, status: null }
+  if (!payload || typeof payload !== 'object') {
+    return { datasetId: null, keyValueStoreId: null, eventType: null, status: null }
+  }
   const body = payload as Record<string, unknown>
   const resource = (body.resource && typeof body.resource === 'object' ? body.resource : {}) as Record<string, unknown>
   const datasetId = resource.defaultDatasetId ?? body.defaultDatasetId
+  const keyValueStoreId = resource.defaultKeyValueStoreId ?? body.defaultKeyValueStoreId
   return {
     datasetId: typeof datasetId === 'string' ? datasetId.trim() : null,
+    keyValueStoreId: typeof keyValueStoreId === 'string' ? keyValueStoreId.trim() : null,
     eventType: typeof body.eventType === 'string' ? body.eventType : null,
     status: typeof resource.status === 'string' ? resource.status : null,
   }
+}
+
+/** The run's INPUT record holds the start URLs it was launched with (read-only). */
+async function fetchRunInput(keyValueStoreId: string): Promise<unknown> {
+  const url = `https://api.apify.com/v2/key-value-stores/${encodeURIComponent(keyValueStoreId)}/records/INPUT`
+  const headers: HeadersInit = { Accept: 'application/json' }
+  const apifyToken = process.env.APIFY_API_TOKEN
+  if (apifyToken) headers.Authorization = `Bearer ${apifyToken}`
+  const res = await fetch(url, { headers, cache: 'no-store' })
+  if (!res.ok) throw new Error(`Apify run input request failed with HTTP ${res.status}.`)
+  return res.json()
 }
 
 async function fetchDatasetItems(datasetId: string): Promise<Yad2Item[]> {
@@ -78,7 +94,7 @@ export async function POST(request: Request) {
     return jsonError(400, 'Request body must be valid JSON.')
   }
 
-  const { datasetId, eventType, status } = extractRunInfo(payload)
+  const { datasetId, keyValueStoreId, eventType, status } = extractRunInfo(payload)
 
   // Acknowledge non-success events with 2xx so Apify does not keep retrying them.
   if ((eventType && eventType !== 'ACTOR.RUN.SUCCEEDED') || (status && status !== 'SUCCEEDED')) {
@@ -87,6 +103,27 @@ export async function POST(request: Request) {
 
   if (!datasetId || !DATASET_ID_PATTERN.test(datasetId)) {
     return jsonError(400, 'Missing or invalid resource.defaultDatasetId in webhook payload.')
+  }
+
+  // Yad2 items do not say whether they are rent or sale, so the deal type comes from the run's start URLs.
+  // Payloads without a key-value store id (manual/legacy calls) keep the previous rent-only behaviour.
+  let transactionType: Yad2TransactionType = 'rent'
+  if (keyValueStoreId) {
+    if (!DATASET_ID_PATTERN.test(keyValueStoreId)) {
+      return jsonError(400, 'Invalid resource.defaultKeyValueStoreId in webhook payload.')
+    }
+    let runInput: unknown
+    try {
+      runInput = await fetchRunInput(keyValueStoreId)
+    } catch (error) {
+      console.error('apify-yad2-webhook: run input fetch failed', error)
+      return jsonError(502, error instanceof Error ? error.message : 'Failed to fetch the Apify run input.')
+    }
+    const resolved = yad2TransactionTypeFromActorInput(runInput)
+    if (!resolved.ok) {
+      return jsonError(422, `Could not tell whether this run is rent or sale: ${resolved.error}`)
+    }
+    transactionType = resolved.transactionType
   }
 
   let items: Yad2Item[]
@@ -131,7 +168,7 @@ export async function POST(request: Request) {
   }
 
   async function importItem(item: Yad2Item, index: number) {
-    const mapped = mapYad2Item(item)
+    const mapped = mapYad2Item(item, transactionType)
     const itemId = item.item_id == null ? null : String(item.item_id)
     const sourceUrl = typeof mapped.source_url === 'string' ? mapped.source_url : null
 
@@ -170,6 +207,7 @@ export async function POST(request: Request) {
   return NextResponse.json({
     success: true,
     dataset_id: datasetId,
+    transaction_type: transactionType,
     total: items.length,
     created,
     updated,

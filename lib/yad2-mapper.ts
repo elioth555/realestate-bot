@@ -120,7 +120,8 @@ function resolveSourceUrl(item: Yad2Item): string | null {
   return itemId ? `https://www.yad2.co.il/realestate/item/${encodeURIComponent(itemId)}` : null
 }
 
-export function mapYad2Item(item: Yad2Item): PropertyInput {
+/** `transactionType` comes from the run's start URL; Yad2 items themselves do not say whether they are rent or sale. */
+export function mapYad2Item(item: Yad2Item, transactionType: 'rent' | 'sale' = 'rent'): PropertyInput {
   const location = parseLocation(item.location)
   const description = cleanString(item.description)
   const availableFrom = toEntranceDate(item.entrance_date)
@@ -133,7 +134,7 @@ export function mapYad2Item(item: Yad2Item): PropertyInput {
     furnished: toBoolean(item.furnished),
     garden: toBoolean(item.garden),
     source: 'yad2',
-    transaction_type: 'rent',
+    transaction_type: transactionType,
     property_type: 'apartment',
     source_url: resolveSourceUrl(item),
     price: toNumber(item.price),

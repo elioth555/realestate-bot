@@ -47,15 +47,15 @@ export async function startYad2Search(input: Yad2SearchInput): Promise<StartYad2
         : 'Choose Tel Aviv as the city to launch a live Yad2 search.',
     }
   }
-  if (input.transactionType !== 'rent') {
-    return { ok: false, kind: 'unsupported', message: 'Live Yad2 search supports rentals only.' }
+  if (input.transactionType !== 'rent' && input.transactionType !== 'sale') {
+    return { ok: false, kind: 'invalid', message: 'Choose Rent or Sale to launch a live Yad2 search.' }
   }
 
   // min_price is filtered locally after import. Neighborhoods are sent to Yad2 only when they have a confirmed ID;
   // otherwise the search stays Tel Aviv-wide and the local filter still narrows the results.
   const validation = validateCriteria({
     city,
-    transaction_type: 'rent',
+    transaction_type: input.transactionType,
     min_rooms: input.minRooms,
     max_rooms: input.maxRooms,
     max_price: input.maxPrice,
