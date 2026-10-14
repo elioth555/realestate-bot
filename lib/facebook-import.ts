@@ -1,6 +1,7 @@
 import { validatePropertyInput, type PropertyInput } from '@/lib/import-listing'
 import { mapFacebookItem, type FacebookExtras, type FacebookItem } from '@/lib/facebook-mapper'
 import type { UpsertResult } from '@/lib/upsert-property'
+import { extractFacebookImageUrls } from '@/lib/facebook-photos'
 
 export const TRANSACTION_UNCLEAR = 'Transaction type unclear'
 const TRANSACTION_REQUIRED = '"transaction_type" is required.'
@@ -11,8 +12,12 @@ export type FacebookSkip = { index: number; post_id: string | null; source_url: 
 /** I/O kept behind this interface so the import loop can be tested offline with fakes. */
 export type FacebookImportDeps = {
   upsert: (property: PropertyInput & { source_url: string }) => Promise<UpsertResult>
-  /** Unused while the actor returns no photo URLs; kept so photos plug in later without touching the loop. */
-  syncPhotos?: (propertyId: string | number, urls: string[]) => Promise<{ inserted: number; errors: string[] }>
+  /** Receives the post's temporary Facebook image URLs; must copy them to permanent storage before saving. */
+  syncPhotos?: (
+    propertyId: string | number,
+    urls: string[],
+    post: { postId: string | null; sourceUrl: string },
+  ) => Promise<{ inserted: number; errors: string[] }>
   concurrency?: number
 }
 
@@ -85,9 +90,10 @@ export async function importFacebookItems(items: unknown[], deps: FacebookImport
       else updated++
       extrasByUrl[validation.data.source_url] = extras
 
-      if (photoUrls.length === 0 || !deps.syncPhotos) return
+      const images = photoUrls.length > 0 ? photoUrls : extractFacebookImageUrls(raw).urls
+      if (images.length === 0 || !deps.syncPhotos) return
       try {
-        const photos = await deps.syncPhotos(result.id, photoUrls)
+        const photos = await deps.syncPhotos(result.id, images, { postId, sourceUrl: validation.data.source_url })
         photosInserted += photos.inserted
         if (photos.errors.length > 0) photoErrors.push({ post_id: postId, property_id: result.id, errors: photos.errors })
       } catch (error) {

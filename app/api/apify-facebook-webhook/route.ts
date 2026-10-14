@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { importFacebookItems } from '@/lib/facebook-import'
 import { getAdminClient, upsertPropertyBySourceUrl } from '@/lib/upsert-property'
 import { replacePropertyPhotos, resolvePhotoTable } from '@/lib/yad2-photos'
+import { facebookPhotoFolder, mirrorFacebookPhotos, supabasePhotoStorage } from '@/lib/facebook-photos'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -92,12 +93,16 @@ export async function POST(request: Request) {
   }
 
   const photoTablePromise = resolvePhotoTable(supabase)
+  const photoStorage = supabasePhotoStorage(supabase)
   const summary = await importFacebookItems(items, {
     upsert: (property) => upsertPropertyBySourceUrl(supabase, property),
-    syncPhotos: async (propertyId, urls) => {
+    syncPhotos: async (propertyId, urls, post) => {
       const photoTable = await photoTablePromise
       if (!photoTable) return { inserted: 0, errors: ['No photo table found (property_photos / proprety_photos).'] }
-      return replacePropertyPhotos(supabase, photoTable, propertyId, urls)
+      const mirrored = await mirrorFacebookPhotos(facebookPhotoFolder(post.postId, post.sourceUrl), urls, photoStorage)
+      // Existing photo rows are only replaced once at least one permanent copy exists.
+      const saved = await replacePropertyPhotos(supabase, photoTable, propertyId, mirrored.publicUrls)
+      return { inserted: saved.inserted, errors: [...mirrored.errors, ...saved.errors] }
     },
   })
 
