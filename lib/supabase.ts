@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { AMENITY_KEYS, type AmenityKey, type Listing } from './listings'
 import { dedupeFacebookListings } from './facebook-dedupe'
 import { dedupeAcrossSources } from './cross-source-dedupe'
+import { fetchAllPages, type PageResult } from './paginate'
 import { mapFacebookItem } from './facebook-mapper'
 import { CANONICAL_CITY, isCanonicalCity } from './geo/canonical-neighborhoods'
 import { resolveNeighborhood } from './geo/resolve-neighborhood'
@@ -35,7 +36,8 @@ function resolveLocation(
   return { city: city || (neighborhood ? CANONICAL_CITY : ''), neighborhood: neighborhood ?? '' }
 }
 const LEGACY_PHOTOS_TABLE = 'proprety_photos'
-const MAX_ROWS = 1000
+const PROPERTY_PAGE_SIZE = 1000
+const MAX_PROPERTY_PAGES = 50
 
 export type PropertyRow = {
   id: string | number
@@ -220,19 +222,30 @@ async function fetchPhotoRows(supabase: SupabaseClient) {
   return { data, error: null }
 }
 
+// "published_at" is not unique, so "id" breaks ties; otherwise rows could shift between pages.
+async function fetchAllPropertyRows(supabase: SupabaseClient) {
+  const { rows, error } = await fetchAllPages<PropertyRow>(
+    (from, to) =>
+      supabase
+        .from('properties')
+        .select('*')
+        .order('published_at', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: false })
+        .range(from, to) as unknown as PromiseLike<PageResult<PropertyRow>>,
+    { pageSize: PROPERTY_PAGE_SIZE, maxPages: MAX_PROPERTY_PAGES, keyOf: (row) => String((row as PropertyRow).id) },
+  )
+  return { data: rows, error }
+}
+
 export async function fetchListings(): Promise<Listing[]> {
   const supabase = getClient()
 
   const [propertiesRes, photosRes] = await Promise.all([
-    supabase
-      .from('properties')
-      .select('*')
-      .order('published_at', { ascending: false, nullsFirst: false })
-      .limit(MAX_ROWS),
+    fetchAllPropertyRows(supabase),
     fetchPhotoRows(supabase),
   ])
 
-  if (propertiesRes.error) throw describeError(propertiesRes.error)
+  if (propertiesRes.error) throw describeError(propertiesRes.error as Parameters<typeof describeError>[0])
 
   // Photos are non-critical: a failed photo query should still render the properties.
   if (photosRes.error) {
