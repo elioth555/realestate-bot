@@ -4,7 +4,7 @@ import { BedDouble, Building, CalendarDays, ExternalLink, MapPin, Phone, Ruler }
 import { buttonVariants } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
-import { SOURCE_LABELS, amenityDisplayLabel, type Listing } from '@/lib/listings'
+import { SOURCE_LABELS, amenityDisplayLabel, listingLinks, listingSources, type Listing } from '@/lib/listings'
 import {
   displayFloor,
   displayPhone,
@@ -16,7 +16,7 @@ import {
 } from '@/lib/listing-display'
 import { AMENITY_ICONS } from './amenity-icons'
 import { ListingPhoto } from './listing-photo'
-import { SourceBadge } from './source-badge'
+import { SourceBadges } from './source-badge'
 
 type ListingDetailSheetProps = {
   listing: Listing | null
@@ -36,8 +36,12 @@ export function ListingDetailSheet({ listing, onOpenChange }: ListingDetailSheet
 function ListingDetail({ listing }: { listing: Listing }) {
   const photoCandidates = listing.photos.length ? listing.photos : [listing.image]
   const published = formatPublishedDate(listing.publishedAt)
-  const phone = listing.phone ? displayPhone(listing.phone) : ''
-  const sourceLabel = SOURCE_LABELS[listing.source]
+  const phones = [...new Set([listing.phone, ...(listing.phones ?? [])].filter(Boolean))]
+  const links = [
+    ...listingLinks(listing).filter((l) => l.url),
+    ...(listing.alsoPostedAt ?? []).map((url) => ({ source: 'facebook' as const, url, id: url })),
+  ].filter((l, i, all) => all.findIndex((o) => o.url === l.url) === i)
+  const isMerged = listingSources(listing).length > 1
 
   return (
     <>
@@ -48,7 +52,7 @@ function ListingDetail({ listing }: { listing: Listing }) {
           className="absolute inset-0 size-full object-cover"
         />
         <div className="absolute top-3 left-3 flex items-center gap-2">
-          <SourceBadge source={listing.source} />
+          <SourceBadges sources={listingSources(listing)} />
           <span
             className={cn(
               'rounded-md px-2 py-0.5 text-xs font-semibold',
@@ -124,15 +128,17 @@ function ListingDetail({ listing }: { listing: Listing }) {
         </section>
 
         <dl className="flex flex-col gap-2 rounded-lg border bg-background p-3 text-sm">
-          {phone && (
-            <div className="flex items-center justify-between gap-3">
+          {phones.length > 0 && (
+            <div className="flex items-start justify-between gap-3">
               <dt className="flex items-center gap-1.5 text-muted-foreground">
-                <Phone className="size-3.5" aria-hidden="true" /> Phone
+                <Phone className="size-3.5" aria-hidden="true" /> {phones.length > 1 ? 'Phones' : 'Phone'}
               </dt>
-              <dd>
-                <a href={phoneHref(listing.phone)} className="font-medium tabular-nums underline-offset-4 hover:underline">
-                  {phone}
-                </a>
+              <dd className="flex flex-col items-end gap-0.5">
+                {phones.map((p) => (
+                  <a key={p} href={phoneHref(p)} className="font-medium tabular-nums underline-offset-4 hover:underline">
+                    {displayPhone(p)}
+                  </a>
+                ))}
               </dd>
             </div>
           )}
@@ -145,18 +151,22 @@ function ListingDetail({ listing }: { listing: Listing }) {
         </dl>
       </div>
 
-      {listing.url && (
-        <SheetFooter className="mt-auto border-t p-5">
-          <a
-            href={listing.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={cn(buttonVariants(), 'h-10 w-full gap-1.5')}
-          >
-            {`Open original ${sourceLabel} post`}
-            <ExternalLink className="size-3.5" aria-hidden="true" />
-            <span className="sr-only">(opens in a new tab)</span>
-          </a>
+      {links.length > 0 && (
+        <SheetFooter className="mt-auto gap-2 border-t p-5">
+          {isMerged && <p className="text-xs text-muted-foreground">Same apartment listed on several sources</p>}
+          {links.map((link, i) => (
+            <a
+              key={link.url}
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(buttonVariants({ variant: i === 0 ? 'default' : 'outline' }), 'h-10 w-full gap-1.5')}
+            >
+              {`Open original ${SOURCE_LABELS[link.source]} ${link.source === 'facebook' ? 'post' : 'listing'}`}
+              <ExternalLink className="size-3.5" aria-hidden="true" />
+              <span className="sr-only">(opens in a new tab)</span>
+            </a>
+          ))}
         </SheetFooter>
       )}
     </>

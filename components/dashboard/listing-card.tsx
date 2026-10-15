@@ -1,7 +1,7 @@
 import { BedDouble, Building, ChevronRight, Clock, ExternalLink, Heart, MapPin, Phone, Ruler } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { SOURCE_LABELS, amenityDisplayLabel, type Listing } from '@/lib/listings'
+import { SOURCE_LABELS, amenityDisplayLabel, listingSources, type Listing } from '@/lib/listings'
 import { formatPublished } from '@/lib/filters'
 import {
   displayFloor,
@@ -13,7 +13,7 @@ import {
 } from '@/lib/listing-display'
 import { AMENITY_ICONS } from './amenity-icons'
 import { ListingPhoto } from './listing-photo'
-import { SourceBadge } from './source-badge'
+import { SourceBadges } from './source-badge'
 
 const MAX_AMENITIES = 6
 
@@ -45,8 +45,8 @@ export function ListingCard({ listing, isFavorite, onToggleFavorite, onOpen }: L
           aria-label="View listing details"
           className="absolute inset-0 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-inset"
         />
-        <div className="absolute inset-x-3 top-3 flex items-start justify-between">
-          <SourceBadge source={listing.source} />
+        <div className="absolute inset-x-3 top-3 flex items-start justify-between gap-2">
+          <SourceBadges sources={listingSources(listing)} />
           <button
             type="button"
             onClick={() => onToggleFavorite(listing.id)}

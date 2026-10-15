@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { AMENITY_KEYS, type AmenityKey, type Listing } from './listings'
 import { dedupeFacebookListings } from './facebook-dedupe'
+import { dedupeAcrossSources } from './cross-source-dedupe'
 import { mapFacebookItem } from './facebook-mapper'
 import { CANONICAL_CITY, isCanonicalCity } from './geo/canonical-neighborhoods'
 import { resolveNeighborhood } from './geo/resolve-neighborhood'
@@ -244,9 +245,11 @@ export async function fetchListings(): Promise<Listing[]> {
     `[v0] photo diagnostics: property 24 -> ${diagnosticPhotos.length} photos, first: ${diagnosticPhotos[0] ?? 'none'} (total photo rows: ${photosRes.data.length}, properties with photos: ${photosByProperty.size})`,
   )
 
-  return dedupeFacebookListings(
-    ((propertiesRes.data ?? []) as PropertyRow[]).map((row) =>
-      rowToListing(row, photosByProperty.get(String(row.id)) ?? []),
+  return dedupeAcrossSources(
+    dedupeFacebookListings(
+      ((propertiesRes.data ?? []) as PropertyRow[]).map((row) =>
+        rowToListing(row, photosByProperty.get(String(row.id)) ?? []),
+      ),
     ),
   )
 }

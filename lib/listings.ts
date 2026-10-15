@@ -91,6 +91,21 @@ export type Listing = {
   image: string | null
   /** Other Facebook post URLs for the same apartment, grouped at read time (lib/facebook-dedupe). */
   alsoPostedAt?: string[]
+  /** Every source listing merged into this card at read time (lib/cross-source-dedupe), representative first. */
+  listedAt?: ListingLink[]
+  /** All real phone numbers across the merged source listings. */
+  phones?: string[]
+}
+
+export type ListingLink = { source: Source; url: string; id: string }
+
+/** Source listings behind a card: the merged list, or just the listing itself. */
+export function listingLinks(listing: Listing): ListingLink[] {
+  return listing.listedAt?.length ? listing.listedAt : [{ source: listing.source, url: listing.url, id: listing.id }]
+}
+
+export function listingSources(listing: Listing): Source[] {
+  return [...new Set(listingLinks(listing).map((l) => l.source))]
 }
 
 export function buildCityIndex(listings: Listing[]) {
