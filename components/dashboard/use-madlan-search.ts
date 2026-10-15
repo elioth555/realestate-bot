@@ -26,8 +26,7 @@ export const MADLAN_REFRESH: SourceRefreshConfig = {
   check: checkMadlanRun,
 }
 
-/** Amenities the Madlan actor can filter on server-side; every other amenity still filters locally. */
-export const MADLAN_AMENITY_FILTERS = ['parking', 'elevator', 'balcony', 'mamad'] as const
+export { MADLAN_AMENITY_FILTERS } from '@/lib/refresh-all'
 
 export function useMadlanSearch(...args: Parameters<typeof useSourceRefresh> extends [unknown, ...infer Rest] ? Rest : never) {
   return useSourceRefresh(MADLAN_REFRESH, ...args)

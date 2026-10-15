@@ -1,6 +1,6 @@
 'use client'
 
-import { BookmarkPlus, Loader2, RefreshCw, RotateCcw, Search } from 'lucide-react'
+import { BookmarkPlus, RefreshCw, RotateCcw, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -19,21 +19,10 @@ type FilterPanelProps = {
   onSearch: () => void
   onSave: () => void
   onReset: () => void
-  onRefreshYad2: () => void
-  /** The Yad2 start request is in flight (a few seconds); never blocks local filtering. */
-  refreshStarting?: boolean
-  /** A background Yad2 update is running for any criteria. */
-  yad2Updating?: boolean
-  onRefreshMadlan: () => void
-  /** The Madlan start request is in flight. */
-  madlanStarting?: boolean
-  /** A background Madlan update is running for any criteria. */
-  madlanUpdating?: boolean
-  onRefreshFacebook: () => void
-  /** The Facebook start request is in flight. */
-  facebookStarting?: boolean
-  /** A background Facebook update is running. */
-  facebookUpdating?: boolean
+  /** Starts Yad2, Madlan and Facebook together. */
+  onRefreshAll: () => void
+  /** A combined refresh is running; never blocks local filtering. */
+  refreshing?: boolean
   priceStep?: number
 }
 
@@ -205,15 +194,8 @@ export function FilterPanel({
   onSearch,
   onSave,
   onReset,
-  onRefreshYad2,
-  refreshStarting = false,
-  yad2Updating = false,
-  onRefreshMadlan,
-  madlanStarting = false,
-  madlanUpdating = false,
-  onRefreshFacebook,
-  facebookStarting = false,
-  facebookUpdating = false,
+  onRefreshAll,
+  refreshing = false,
   priceStep = 500,
 }: FilterPanelProps) {
   const set = <K extends keyof Filters>(key: K, value: Filters[K]) => onChange({ ...filters, [key]: value })
@@ -369,56 +351,17 @@ export function FilterPanel({
           <Search className="size-4" aria-hidden="true" />
           Apply filters
         </Button>
-        <div role="group" aria-labelledby="source-refresh-label" className="col-span-2 grid grid-cols-2 gap-2">
-          <p id="source-refresh-label" className="col-span-2 text-xs font-medium text-muted-foreground">
-            Refresh sources
-          </p>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={onRefreshYad2}
-            disabled={refreshStarting}
-            aria-busy={refreshStarting}
-            className="h-10 gap-1.5"
-          >
-            {refreshStarting ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <RefreshCw className={cn('size-4', yad2Updating && 'animate-spin')} aria-hidden="true" />
-            )}
-            {refreshStarting ? 'Starting…' : 'Refresh Yad2'}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={onRefreshMadlan}
-            disabled={madlanStarting}
-            aria-busy={madlanStarting}
-            className="h-10 gap-1.5"
-          >
-            {madlanStarting ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <RefreshCw className={cn('size-4', madlanUpdating && 'animate-spin')} aria-hidden="true" />
-            )}
-            {madlanStarting ? 'Starting…' : 'Refresh Madlan'}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={onRefreshFacebook}
-            disabled={facebookStarting}
-            aria-busy={facebookStarting}
-            className="col-span-2 h-10 gap-1.5"
-          >
-            {facebookStarting ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <RefreshCw className={cn('size-4', facebookUpdating && 'animate-spin')} aria-hidden="true" />
-            )}
-            {facebookStarting ? 'Starting…' : 'Refresh Facebook'}
-          </Button>
-        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={onRefreshAll}
+          disabled={refreshing}
+          aria-busy={refreshing}
+          className="col-span-2 h-10 gap-1.5"
+        >
+          <RefreshCw className={cn('size-4', refreshing && 'animate-spin')} aria-hidden="true" />
+          {refreshing ? 'Refreshing sources…' : 'Refresh all sources'}
+        </Button>
         <p className="col-span-2 text-xs leading-relaxed text-muted-foreground">
           Filters apply instantly to stored listings. Source refreshes import new listings in the background.
         </p>

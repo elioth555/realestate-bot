@@ -31,10 +31,14 @@ import { ListingsGrid } from './listings-grid'
 import { ListingsError, ListingsLoading } from './listings-status'
 import { SavedSearches } from './saved-searches'
 import { StatsBar } from './stats-bar'
-import { MADLAN_AMENITY_FILTERS, useMadlanSearch } from './use-madlan-search'
+import { buildSourceInputs } from '@/lib/refresh-all'
+import { RefreshAllStatus } from './refresh-all-status'
+import { useMadlanSearch } from './use-madlan-search'
 import { FACEBOOK_REFRESH_INPUT, useFacebookSearch } from './use-facebook-search'
+import { useRefreshAll } from './use-refresh-all'
 import { useYad2Search } from './use-yad2-search'
-import { Yad2SearchStatus } from './yad2-search-status'
+
+const QUIET = { quiet: true }
 
 const SORT_OPTIONS: { label: string; value: SortKey }[] = [
   { label: 'Newest first', value: 'newest' },
@@ -81,22 +85,15 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
 
   const scope: DealScope = tab === 'rent' || tab === 'sale' ? tab : 'all'
 
-  const yad2Input = {
-    city: draft.city,
-    transactionType: scope === 'sale' ? ('sale' as const) : ('rent' as const),
-    minRooms: draft.minRooms,
-    maxRooms: draft.maxRooms,
-    minPrice: draft.minPrice,
-    maxPrice: draft.maxPrice,
-    neighborhoods: draft.neighborhoods,
-  }
-  const yad2 = useYad2Search(yad2Input, () => mutate(), data)
-  const madlanInput = {
-    ...yad2Input,
-    amenities: draft.amenities.filter((a) => (MADLAN_AMENITY_FILTERS as readonly string[]).includes(a)),
-  }
-  const madlan = useMadlanSearch(madlanInput, () => mutate(), data)
-  const facebook = useFacebookSearch(() => mutate(), data)
+  const { yad2: yad2Input, madlan: madlanInput } = buildSourceInputs(draft, scope)
+  // Each source keeps its own runs, polling and Supabase refetch; the combined status replaces their toasts.
+  const yad2 = useYad2Search(yad2Input, () => mutate(), data, QUIET)
+  const madlan = useMadlanSearch(madlanInput, () => mutate(), data, QUIET)
+  const facebook = useFacebookSearch(() => mutate(), data, QUIET)
+  const refresh = useRefreshAll(
+    { yad2, madlan, facebook },
+    { yad2: yad2Input, madlan: madlanInput, facebook: FACEBOOK_REFRESH_INPUT },
+  )
 
   useEffect(() => {
     console.info('[dashboard] restored filters from URL', {
@@ -143,19 +140,9 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
     setFiltersOpen(false)
   }
 
-  const handleRefreshYad2 = () => {
+  const handleRefreshAll = () => {
     if (tab === 'saved') setTab('all')
-    void yad2.start(yad2Input)
-  }
-
-  const handleRefreshMadlan = () => {
-    if (tab === 'saved') setTab('all')
-    void madlan.start(madlanInput)
-  }
-
-  const handleRefreshFacebook = () => {
-    if (tab === 'saved') setTab('all')
-    void facebook.start(FACEBOOK_REFRESH_INPUT)
+    void refresh.refreshAll()
   }
 
   const handleSave = () => {
@@ -193,15 +180,8 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
       cities={cities}
       propertyTypes={propertyTypes}
       onChange={setDraft} onSearch={handleSearch} onSave={handleSave} onReset={handleReset}
-      onRefreshYad2={handleRefreshYad2}
-      refreshStarting={yad2.isStarting}
-      yad2Updating={yad2.isUpdating}
-      onRefreshMadlan={handleRefreshMadlan}
-      madlanStarting={madlan.isStarting}
-      madlanUpdating={madlan.isUpdating}
-      onRefreshFacebook={handleRefreshFacebook}
-      facebookStarting={facebook.isStarting}
-      facebookUpdating={facebook.isUpdating}
+      onRefreshAll={handleRefreshAll}
+      refreshing={refresh.isRefreshing}
       priceStep={scope === 'sale' ? 50_000 : 500} />
   )
 
@@ -285,9 +265,7 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
           </Tabs>
 
           <div className="mt-4">
-            <Yad2SearchStatus state={yad2.state} onDismiss={yad2.dismiss} matchCount={results.length} label="Yad2" />
-            <Yad2SearchStatus state={madlan.state} onDismiss={madlan.dismiss} matchCount={results.length} label="Madlan" />
-            <Yad2SearchStatus state={facebook.state} onDismiss={facebook.dismiss} matchCount={results.length} label="Facebook" />
+            <RefreshAllStatus summary={refresh.summary} newListings={refresh.newListings} onDismiss={refresh.dismiss} />
             {error ? (
               <ListingsError
                 message={error instanceof SupabaseLoadError ? error.message : 'Could not reach Supabase.'}

@@ -67,6 +67,13 @@ export const YAD2_REFRESH: SourceRefreshConfig = {
   check: checkYad2Run,
 }
 
+/** `quiet` drops this source's own toasts, for when one combined refresh status speaks for every source. */
+export type SourceRefreshOptions = { quiet?: boolean }
+export type SourceStartOutcome = 'started' | 'already-running' | 'refused'
+
+const noop = () => undefined
+const SILENT_TOAST = { info: noop, warning: noop, success: noop }
+
 export type Yad2SearchPhase = 'idle' | 'running' | 'background' | 'importing' | 'done' | 'failed'
 export type Yad2SearchOutcome = 'running' | 'succeeded' | 'partial' | 'failed'
 
@@ -292,8 +299,10 @@ export function useSourceRefresh(
   currentInput: RefreshInput,
   onImported: () => Promise<FingerprintItem[] | undefined>,
   currentListings: readonly FingerprintItem[] | undefined,
+  options: SourceRefreshOptions = {},
 ) {
   const { source, label, storageKey } = config
+  const notify = options.quiet ? SILENT_TOAST : toast
   const logTag = source
   const longRunningMessage = `${label} is taking longer than expected. The search is still running in the background.`
   const backgroundMessage = `${label} is still processing this search. You can leave this page and come back later.`
@@ -451,11 +460,11 @@ export function useSourceRefresh(
           summary,
         })
         if (partial) {
-          toast.warning(`${label} update completed partially`, {
+          notify.warning(`${label} update completed partially`, {
             description: `${t.succeeded} of ${t.total} ${label} searches succeeded; ${t.failed} failed. ${changes}`,
           })
         } else {
-          toast.success(`${label} update complete`, { description: changes })
+          notify.success(`${label} update complete`, { description: changes })
         }
       }, wait)
       timersRef.current.push(timer)
@@ -548,13 +557,13 @@ export function useSourceRefresh(
   const isUpdating = isBusyPhase(state.phase)
   const isTrackingCurrent = isUpdating && trackedSignature === currentSignature
 
-  const start = async (input: RefreshInput) => {
+  const start = async (input: RefreshInput): Promise<SourceStartOutcome> => {
     const signature = yad2SearchSignature(input)
-    if (startingRef.current) return
+    if (startingRef.current) return 'already-running'
     // Only the exact same refresh is skipped; a refresh for other filters may start while one runs in the background.
     if (trackedSignature === signature && isBusyPhase(state.phase)) {
-      toast.info(`${label} refresh already running`, { description: 'This search is already updating in the background.' })
-      return
+      notify.info(`${label} refresh already running`, { description: 'This search is already updating in the background.' })
+      return 'already-running'
     }
     startingRef.current = true
     setIsStarting(true)
@@ -576,9 +585,9 @@ export function useSourceRefresh(
     if (!result.ok) {
       // Refusals are informational only: listings stay usable and any tracked update keeps running untouched.
       console.info(`[${logTag}] refresh not started; previous update left untouched`, { kind: result.kind })
-      if (result.kind === 'unsupported') toast.info(`${label} refresh not available`, { description: result.message })
-      else toast.warning(`${label} refresh not started`, { description: result.message })
-      return
+      if (result.kind === 'unsupported') notify.info(`${label} refresh not available`, { description: result.message })
+      else notify.warning(`${label} refresh not started`, { description: result.message })
+      return 'refused'
     }
 
     if (runIds.length > 0 || importingRef.current) {
@@ -608,7 +617,7 @@ export function useSourceRefresh(
       filters: yad2SignatureFilters(input),
     })
     if (result.startFailures > 0) {
-      toast.warning(`Some ${label} searches could not start`, {
+      notify.warning(`Some ${label} searches could not start`, {
         description: result.startLimitReached
           ? `Apify concurrency limit reached for ${result.startFailures} of ${result.runIds.length + result.startFailures} searches. Tracking the rest.`
           : `${result.startFailures} of ${result.runIds.length + result.startFailures} searches failed to start. Tracking the rest.`,
@@ -626,6 +635,7 @@ export function useSourceRefresh(
       nextPollMs: pollDelayFor(0),
       summary: null,
     })
+    return 'started'
   }
 
   const dismiss = () => {
@@ -639,6 +649,9 @@ export function useYad2Search(
   currentInput: RefreshInput,
   onImported: () => Promise<FingerprintItem[] | undefined>,
   currentListings: readonly FingerprintItem[] | undefined,
+  options?: SourceRefreshOptions,
 ) {
-  return useSourceRefresh(YAD2_REFRESH, currentInput, onImported, currentListings)
+  return useSourceRefresh(YAD2_REFRESH, currentInput, onImported, currentListings, options)
 }
+
+export type SourceRefreshHook = ReturnType<typeof useSourceRefresh>
