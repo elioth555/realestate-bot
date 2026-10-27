@@ -1,7 +1,13 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { validatePropertyInput } from '@/lib/import-listing'
-import { getAdminClient, upsertPropertyBySourceUrl } from '@/lib/upsert-property'
+import { buildRefreshRunRow, extractRunMeta, yad2RunScope, yad2RunTruncated } from '@/lib/freshness'
+import {
+  getAdminClient,
+  recordRefreshRun,
+  upsertPropertyBySourceUrl,
+  type RecordRunResult,
+} from '@/lib/upsert-property'
 import { mapYad2Item, type Yad2Item } from '@/lib/yad2-mapper'
 import { extractYad2ImageUrls, replacePropertyPhotos, resolvePhotoTable } from '@/lib/yad2-photos'
 import { yad2TransactionTypeFromActorInput, type Yad2TransactionType } from '@/lib/yad2-search'
@@ -108,11 +114,11 @@ export async function POST(request: Request) {
   // Yad2 items do not say whether they are rent or sale, so the deal type comes from the run's start URLs.
   // Payloads without a key-value store id (manual/legacy calls) keep the previous rent-only behaviour.
   let transactionType: Yad2TransactionType = 'rent'
+  let runInput: unknown = null
   if (keyValueStoreId) {
     if (!DATASET_ID_PATTERN.test(keyValueStoreId)) {
       return jsonError(400, 'Invalid resource.defaultKeyValueStoreId in webhook payload.')
     }
-    let runInput: unknown
     try {
       runInput = await fetchRunInput(keyValueStoreId)
     } catch (error) {
@@ -133,6 +139,9 @@ export async function POST(request: Request) {
     console.error('apify-yad2-webhook: dataset fetch failed', error)
     return jsonError(502, error instanceof Error ? error.message : 'Failed to fetch Apify dataset.')
   }
+
+  const meta = extractRunMeta(payload)
+  const seenAt = meta.finishedAt ?? new Date().toISOString()
 
   let created = 0
   let updated = 0
@@ -179,7 +188,7 @@ export async function POST(request: Request) {
     }
 
     try {
-      const result = await upsertPropertyBySourceUrl(supabase!, validation.data)
+      const result = await upsertPropertyBySourceUrl(supabase!, validation.data, { seenAt })
       if (!result.ok) {
         errors.push({ index, item_id: itemId, source_url: sourceUrl, errors: [result.error] })
         return
@@ -204,9 +213,30 @@ export async function POST(request: Request) {
 
   errors.sort((a, b) => a.index - b.index)
 
+  // Recorded only after every item was processed. Without a run id or readable input there is no scope to record.
+  let refreshRun: RecordRunResult = { recorded: false, reason: 'No Apify run id in the webhook payload.' }
+  const scope = runInput === null ? null : yad2RunScope(runInput)
+  if (meta.runId && !scope) refreshRun = { recorded: false, reason: 'Run input could not be read.' }
+  if (meta.runId && scope) {
+    const row = buildRefreshRunRow({
+      source: 'yad2',
+      meta: { ...meta, runId: meta.runId },
+      scope,
+      seenAt,
+      itemCount: items.length,
+      itemsImported: created + updated,
+      itemsFailed: errors.length,
+      truncated: yad2RunTruncated(items.length),
+    })
+    refreshRun = await recordRefreshRun(supabase!, row)
+    if (refreshRun.error) console.error('apify-yad2-webhook: refresh run not recorded', refreshRun.error)
+    if (scope.problems.length > 0) refreshRun.reason = scope.problems.join(' ')
+  }
+
   return NextResponse.json({
     success: true,
     dataset_id: datasetId,
+    refresh_run: refreshRun,
     transaction_type: transactionType,
     total: items.length,
     created,

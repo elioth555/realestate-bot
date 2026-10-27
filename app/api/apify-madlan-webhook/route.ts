@@ -1,7 +1,14 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { importMadlanItems } from '@/lib/madlan-import'
-import { getAdminClient, upsertPropertyBySourceUrl } from '@/lib/upsert-property'
+import { extractKeyValueStoreId, fetchRunInputSafe } from '@/lib/apify-run-input'
+import { buildRefreshRunRow, extractRunMeta, madlanRunScope, madlanRunTruncated } from '@/lib/freshness'
+import {
+  getAdminClient,
+  recordRefreshRun,
+  upsertPropertyBySourceUrl,
+  type RecordRunResult,
+} from '@/lib/upsert-property'
 import { replacePropertyPhotos, resolvePhotoTable } from '@/lib/yad2-photos'
 
 export const runtime = 'nodejs'
@@ -124,9 +131,13 @@ export async function POST(request: Request) {
     return jsonError(502, error instanceof Error ? error.message : 'Failed to fetch Apify dataset.')
   }
 
+  const meta = extractRunMeta(payload)
+  const seenAt = meta.finishedAt ?? new Date().toISOString()
+  const runInput = await fetchRunInputSafe(extractKeyValueStoreId(payload), apifyToken)
+
   const photoTablePromise = resolvePhotoTable(supabase)
   const summary = await importMadlanItems(items, {
-    upsert: (property) => upsertPropertyBySourceUrl(supabase, property),
+    upsert: (property) => upsertPropertyBySourceUrl(supabase, property, { seenAt }),
     syncPhotos: async (propertyId, urls) => {
       const photoTable = await photoTablePromise
       if (!photoTable) return { inserted: 0, errors: ['No photo table found (property_photos / proprety_photos).'] }
@@ -134,5 +145,25 @@ export async function POST(request: Request) {
     },
   })
 
-  return NextResponse.json({ success: true, dataset_id: datasetId, ...summary })
+  // Recorded only after every item was processed. Without a run id or readable input there is no scope to record.
+  let refreshRun: RecordRunResult = { recorded: false, reason: 'No Apify run id in the webhook payload.' }
+  const scope = madlanRunScope(runInput)
+  if (meta.runId && !scope) refreshRun = { recorded: false, reason: 'Run input could not be read.' }
+  if (meta.runId && scope) {
+    const row = buildRefreshRunRow({
+      source: 'madlan',
+      meta: { ...meta, runId: meta.runId },
+      scope,
+      seenAt,
+      itemCount: items.length,
+      itemsImported: summary.created + summary.updated,
+      itemsFailed: summary.failed,
+      truncated: madlanRunTruncated(items.length, scope.max_items),
+    })
+    refreshRun = await recordRefreshRun(supabase, row)
+    if (refreshRun.error) console.error('apify-madlan-webhook: refresh run not recorded', refreshRun.error)
+    if (scope.problems.length > 0) refreshRun.reason = scope.problems.join(' ')
+  }
+
+  return NextResponse.json({ success: true, dataset_id: datasetId, refresh_run: refreshRun, ...summary })
 }

@@ -1,7 +1,14 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { importFacebookItems } from '@/lib/facebook-import'
-import { getAdminClient, upsertPropertyBySourceUrl } from '@/lib/upsert-property'
+import { extractKeyValueStoreId, fetchRunInputSafe } from '@/lib/apify-run-input'
+import { buildRefreshRunRow, extractRunMeta, facebookRunScope } from '@/lib/freshness'
+import {
+  getAdminClient,
+  recordRefreshRun,
+  upsertPropertyBySourceUrl,
+  type RecordRunResult,
+} from '@/lib/upsert-property'
 import { replacePropertyPhotos, resolvePhotoTable } from '@/lib/yad2-photos'
 import { facebookPhotoFolder, mirrorFacebookPhotos, supabasePhotoStorage } from '@/lib/facebook-photos'
 
@@ -92,10 +99,14 @@ export async function POST(request: Request) {
     return jsonError(502, error instanceof Error ? error.message : 'Failed to fetch Apify dataset.')
   }
 
+  const meta = extractRunMeta(payload)
+  const seenAt = meta.finishedAt ?? new Date().toISOString()
+  const runInput = await fetchRunInputSafe(extractKeyValueStoreId(payload), apifyToken)
+
   const photoTablePromise = resolvePhotoTable(supabase)
   const photoStorage = supabasePhotoStorage(supabase)
   const summary = await importFacebookItems(items, {
-    upsert: (property) => upsertPropertyBySourceUrl(supabase, property),
+    upsert: (property) => upsertPropertyBySourceUrl(supabase, property, { seenAt }),
     syncPhotos: async (propertyId, urls, post) => {
       const photoTable = await photoTablePromise
       if (!photoTable) return { inserted: 0, errors: ['No photo table found (property_photos / proprety_photos).'] }
@@ -106,6 +117,26 @@ export async function POST(request: Request) {
     },
   })
 
+  // Recorded only after every item was processed. Group windows bound coverage, so the scan is never "truncated".
+  let refreshRun: RecordRunResult = { recorded: false, reason: 'No Apify run id in the webhook payload.' }
+  const scope = facebookRunScope(runInput, items)
+  if (meta.runId && !scope) refreshRun = { recorded: false, reason: 'Run input could not be read.' }
+  if (meta.runId && scope) {
+    const row = buildRefreshRunRow({
+      source: 'facebook',
+      meta: { ...meta, runId: meta.runId },
+      scope,
+      seenAt,
+      itemCount: items.length,
+      itemsImported: summary.created + summary.updated,
+      itemsFailed: summary.failed,
+      truncated: false,
+    })
+    refreshRun = await recordRefreshRun(supabase, row)
+    if (refreshRun.error) console.error('apify-facebook-webhook: refresh run not recorded', refreshRun.error)
+    if (scope.problems.length > 0) refreshRun.reason = scope.problems.join(' ')
+  }
+
   // No extras column exists in `properties`; extras are returned in the response for inspection only.
-  return NextResponse.json({ success: true, dataset_id: datasetId, ...summary })
+  return NextResponse.json({ success: true, dataset_id: datasetId, refresh_run: refreshRun, ...summary })
 }
