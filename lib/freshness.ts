@@ -177,6 +177,8 @@ const MADLAN_ALLOWED_KEYS = new Set([
   'maxRooms',
   'neighbourhood',
 ])
+// Actor/output options: they change what each item contains, not which properties the search returns.
+const MADLAN_OUTPUT_OPTIONS = new Set(['excludeAgents', 'enrichInsights', 'includeContactMetadata'])
 const MADLAN_NARROWING_FLAGS = ['requireParking', 'requireElevator', 'requireBalcony', 'requireSecureRoom']
 
 /** Scope of a Madlan run from its saved INPUT. Null when the deal type can't be read. */
@@ -189,6 +191,7 @@ export function madlanRunScope(input: unknown): (RunScope & { max_items: number 
   const problems: string[] = []
   if (typeof body.city !== 'string' || !isCanonicalCity(body.city)) problems.push('Run is not a Tel Aviv search.')
   for (const key of Object.keys(body)) {
+    if (MADLAN_OUTPUT_OPTIONS.has(key)) continue
     if (MADLAN_NARROWING_FLAGS.includes(key)) {
       if (body[key] === true) problems.push(`Run filters on ${key}, which coverage cannot represent.`)
     } else if (!MADLAN_ALLOWED_KEYS.has(key)) {
@@ -284,6 +287,31 @@ export function facebookRunScope(input: unknown, items: unknown[]): RunScope | n
 
 // ---------- run row ----------
 
+/** Above this share of failed items, processing itself is suspect and the run's coverage is not trusted. */
+export const SYSTEMIC_FAILURE_RATIO = 0.1
+
+/**
+ * Whether a run's coverage can be trusted. Only coverage problems make it `partial`:
+ * an unreadable or unsupported scope, a truncated result set, or a systemic import failure
+ * (nothing imported, or more than SYSTEMIC_FAILURE_RATIO of items failed).
+ * A few malformed items are kept in items_failed for auditing but do not invalidate coverage.
+ * Non-succeeded actor runs and unreadable datasets never reach this point; the webhooks stop before recording.
+ */
+export function refreshRunStatus(args: {
+  problems: string[]
+  truncated: boolean
+  itemCount: number
+  itemsImported: number
+  itemsFailed: number
+}): RefreshRunStatus {
+  if (args.problems.length > 0 || args.truncated) return 'partial'
+  if (args.itemsFailed > 0) {
+    if (args.itemsImported === 0) return 'partial'
+    if (args.itemCount === 0 || args.itemsFailed / args.itemCount > SYSTEMIC_FAILURE_RATIO) return 'partial'
+  }
+  return 'succeeded'
+}
+
 export function buildRefreshRunRow(args: {
   source: RefreshSource
   meta: RunMeta & { runId: string }
@@ -301,7 +329,13 @@ export function buildRefreshRunRow(args: {
     actor_run_id: args.meta.runId,
     started_at: args.meta.startedAt,
     finished_at: args.seenAt,
-    status: scope.problems.length === 0 && args.itemsFailed === 0 ? 'succeeded' : 'partial',
+    status: refreshRunStatus({
+      problems: scope.problems,
+      truncated: args.truncated,
+      itemCount: args.itemCount,
+      itemsImported: args.itemsImported,
+      itemsFailed: args.itemsFailed,
+    }),
     scope_kind: scope.scope_kind,
     neighborhoods: scope.neighborhoods,
     group_urls: scope.group_urls,

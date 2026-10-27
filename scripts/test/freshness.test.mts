@@ -184,7 +184,7 @@ test('Facebook: windows hold the oldest post per scanned group', () => {
 
 // ---------- run row ----------
 
-test('buildRefreshRunRow: succeeded only with no scope problems and no failed items', () => {
+test('buildRefreshRunRow: succeeded with a clean scope; scope problems make it partial', () => {
   const scope = yad2RunScope(yad2Input(`https://www.yad2.co.il/realestate/rent?${TLV}&neighborhood=848`))!
   const base = {
     source: 'yad2' as const,
@@ -201,8 +201,97 @@ test('buildRefreshRunRow: succeeded only with no scope problems and no failed it
   assert.equal(ok.actor_run_id, 'r1')
   assert.equal(ok.finished_at, at(0))
   assert.deepEqual(ok.neighborhoods, ['Neve Tzedek'])
-  assert.equal(buildRefreshRunRow({ ...base, itemsFailed: 1 }).status, 'partial')
   assert.equal(buildRefreshRunRow({ ...base, scope: { ...scope, problems: ['x'] } }).status, 'partial')
+})
+
+// ---------- coverage completeness vs item import quality ----------
+
+const neveTzedekRent = () => yad2RunScope(yad2Input(`https://www.yad2.co.il/realestate/rent?${TLV}&neighborhood=848`))!
+const yad2Row = (overrides: Partial<Parameters<typeof buildRefreshRunRow>[0]> = {}) =>
+  buildRefreshRunRow({
+    source: 'yad2',
+    meta: { runId: 'r-yad2', startedAt: null, finishedAt: at(0) },
+    scope: neveTzedekRent(),
+    seenAt: at(0),
+    itemCount: 29,
+    itemsImported: 28,
+    itemsFailed: 1,
+    truncated: yad2RunTruncated(29),
+    ...overrides,
+  })
+
+test('Yad2: 29 items with 1 malformed property is still succeeded, items_failed kept for audit', () => {
+  const row = yad2Row()
+  assert.equal(row.status, 'succeeded')
+  assert.equal(row.items_failed, 1)
+  assert.equal(row.items_imported, 28)
+  assert.equal(row.truncated, false)
+  assert.deepEqual(row.neighborhoods, ['Neve Tzedek'])
+})
+
+test('Yad2: a truncated run is partial', () => {
+  const row = yad2Row({ itemCount: YAD2_PAGE_SIZE, itemsImported: YAD2_PAGE_SIZE, itemsFailed: 0, truncated: yad2RunTruncated(YAD2_PAGE_SIZE) })
+  assert.equal(row.truncated, true)
+  assert.equal(row.status, 'partial')
+})
+
+test('Yad2: an unreadable or unsupported scope is partial', () => {
+  assert.equal(yad2RunScope({ start_urls: [] }), null)
+  const unknownFilter = yad2RunScope(yad2Input(`https://www.yad2.co.il/realestate/rent?${TLV}&parking=1`))!
+  assert.equal(yad2Row({ scope: unknownFilter, itemsFailed: 0, itemsImported: 29 }).status, 'partial')
+  const splitNeighborhood = yad2RunScope(yad2Input(`https://www.yad2.co.il/realestate/rent?${TLV}&neighborhood=1483`))!
+  assert.equal(yad2Row({ scope: splitNeighborhood, itemsFailed: 0, itemsImported: 29 }).status, 'partial')
+})
+
+test('a real dataset-processing failure is partial', () => {
+  assert.equal(yad2Row({ itemCount: 29, itemsImported: 0, itemsFailed: 29 }).status, 'partial')
+  assert.equal(yad2Row({ itemCount: 29, itemsImported: 20, itemsFailed: 9 }).status, 'partial')
+  assert.equal(yad2Row({ itemCount: 10, itemsImported: 9, itemsFailed: 1 }).status, 'succeeded')
+  assert.equal(yad2Row({ itemCount: 10, itemsImported: 8, itemsFailed: 2 }).status, 'partial')
+  assert.equal(yad2Row({ itemCount: 0, itemsImported: 0, itemsFailed: 0 }).status, 'succeeded')
+})
+
+const madlanInput = {
+  city: 'Tel Aviv',
+  dealType: 'rent',
+  neighbourhood: 'נווה צדק',
+  maxItems: 50,
+  excludeAgents: false,
+  enrichInsights: true,
+  includeContactMetadata: true,
+}
+const madlanRow = (itemCount: number, itemsFailed = 0) => {
+  const scope = madlanRunScope(madlanInput)!
+  return buildRefreshRunRow({
+    source: 'madlan',
+    meta: { runId: 'r-madlan', startedAt: null, finishedAt: at(0) },
+    scope,
+    seenAt: at(0),
+    itemCount,
+    itemsImported: itemCount - itemsFailed,
+    itemsFailed,
+    truncated: madlanRunTruncated(itemCount, scope.max_items),
+  })
+}
+
+test('Madlan: excludeAgents, enrichInsights and includeContactMetadata are ignored', () => {
+  const scope = madlanRunScope(madlanInput)!
+  assert.deepEqual(scope.problems, [])
+  assert.deepEqual(scope.neighborhoods, ['Neve Tzedek'])
+  assert.equal(scope.transaction_type, 'rent')
+})
+
+test('Madlan: a valid non-truncated run is succeeded', () => {
+  const row = madlanRow(31, 1)
+  assert.equal(row.truncated, false)
+  assert.equal(row.status, 'succeeded')
+  assert.equal(row.items_failed, 1)
+})
+
+test('Madlan: hitting maxItems is truncated and partial', () => {
+  const row = madlanRow(50)
+  assert.equal(row.truncated, true)
+  assert.equal(row.status, 'partial')
 })
 
 // ---------- coverage ----------
