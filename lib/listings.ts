@@ -58,6 +58,7 @@ export const SOURCE_LABELS: Record<Source, string> = {
 }
 
 import { CANONICAL_NEIGHBORHOODS, isCanonicalCity } from './geo/canonical-neighborhoods'
+import type { FreshnessStatus } from './freshness'
 
 export type Listing = {
   id: string
@@ -95,6 +96,8 @@ export type Listing = {
   listedAt?: ListingLink[]
   /** All real phone numbers across the merged source listings. */
   phones?: string[]
+  /** Derived at read time from last_seen_at and source_refresh_runs (lib/listing-freshness); never stored. */
+  freshness?: FreshnessStatus
 }
 
 export type ListingLink = { source: Source; url: string; id: string }

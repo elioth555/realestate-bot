@@ -1,6 +1,8 @@
 'use client'
 
-import { BedDouble, Building, CalendarDays, ExternalLink, MapPin, Phone, Ruler } from 'lucide-react'
+import { BedDouble, Building, CalendarDays, ExternalLink, MapPin, Phone, RefreshCw, Ruler } from 'lucide-react'
+import { FRESHNESS_DESCRIPTIONS } from '@/lib/listing-freshness'
+import { FreshnessLabel } from './freshness-label'
 import { buttonVariants } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
@@ -148,6 +150,19 @@ function ListingDetail({ listing }: { listing: Listing }) {
             </dt>
             <dd className="font-medium">{published ?? 'Unknown'}</dd>
           </div>
+          {listing.freshness && (
+            <div className="flex items-start justify-between gap-3">
+              <dt className="flex items-center gap-1.5 text-muted-foreground">
+                <RefreshCw className="size-3.5" aria-hidden="true" /> Freshness
+              </dt>
+              <dd className="flex flex-col items-end gap-0.5 text-right">
+                <FreshnessLabel status={listing.freshness} className="font-medium text-foreground" />
+                <span className="max-w-56 text-xs text-pretty text-muted-foreground">
+                  {FRESHNESS_DESCRIPTIONS[listing.freshness]}
+                </span>
+              </dd>
+            </div>
+          )}
         </dl>
       </div>
 

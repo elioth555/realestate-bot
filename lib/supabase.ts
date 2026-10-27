@@ -3,6 +3,8 @@ import { AMENITY_KEYS, type AmenityKey, type Listing } from './listings'
 import { dedupeFacebookListings } from './facebook-dedupe'
 import { dedupeAcrossSources } from './cross-source-dedupe'
 import { fetchAllPages, type PageResult } from './paginate'
+import type { CoverageRun } from './freshness'
+import { COVERAGE_RUN_COLUMNS, resolveCardFreshness, withFreshness } from './listing-freshness'
 import { mapFacebookItem } from './facebook-mapper'
 import { CANONICAL_CITY, isCanonicalCity } from './geo/canonical-neighborhoods'
 import { resolveNeighborhood } from './geo/resolve-neighborhood'
@@ -240,9 +242,10 @@ async function fetchAllPropertyRows(supabase: SupabaseClient) {
 export async function fetchListings(): Promise<Listing[]> {
   const supabase = getClient()
 
-  const [propertiesRes, photosRes] = await Promise.all([
+  const [propertiesRes, photosRes, runsRes] = await Promise.all([
     fetchAllPropertyRows(supabase),
     fetchPhotoRows(supabase),
+    fetchCoverageRuns(supabase),
   ])
 
   if (propertiesRes.error) throw describeError(propertiesRes.error as Parameters<typeof describeError>[0])
@@ -258,13 +261,32 @@ export async function fetchListings(): Promise<Listing[]> {
     `[v0] photo diagnostics: property 24 -> ${diagnosticPhotos.length} photos, first: ${diagnosticPhotos[0] ?? 'none'} (total photo rows: ${photosRes.data.length}, properties with photos: ${photosByProperty.size})`,
   )
 
-  return dedupeAcrossSources(
-    dedupeFacebookListings(
-      ((propertiesRes.data ?? []) as PropertyRow[]).map((row) =>
-        rowToListing(row, photosByProperty.get(String(row.id)) ?? []),
-      ),
-    ),
+  // Freshness is display-only: a failed run-history read leaves every listing visible with no status.
+  if (runsRes.error) {
+    console.warn('Could not load source_refresh_runs; showing listings without freshness status.', runsRes.error.message)
+  }
+  const now = new Date()
+  const sourceListings = ((propertiesRes.data ?? []) as PropertyRow[]).map((row) => {
+    const listing = rowToListing(row, photosByProperty.get(String(row.id)) ?? [])
+    return runsRes.error ? listing : withFreshness(listing, row, runsRes.data, now)
+  })
+
+  return resolveCardFreshness(dedupeAcrossSources(dedupeFacebookListings(sourceListings)), sourceListings)
+}
+
+async function fetchCoverageRuns(supabase: SupabaseClient) {
+  const { rows, error } = await fetchAllPages<CoverageRun>(
+    (from, to) =>
+      supabase
+        .from('source_refresh_runs')
+        .select(COVERAGE_RUN_COLUMNS)
+        .eq('status', 'succeeded')
+        .eq('truncated', false)
+        .order('id', { ascending: true })
+        .range(from, to) as unknown as PromiseLike<PageResult<CoverageRun>>,
+    { pageSize: PROPERTY_PAGE_SIZE, maxPages: MAX_PROPERTY_PAGES },
   )
+  return { data: rows, error }
 }
 
 function firstValidDate(...dates: (string | null | undefined)[]) {

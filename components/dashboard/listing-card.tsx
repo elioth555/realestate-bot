@@ -14,6 +14,7 @@ import {
 import { AMENITY_ICONS } from './amenity-icons'
 import { ListingPhoto } from './listing-photo'
 import { SourceBadges } from './source-badge'
+import { FreshnessLabel } from './freshness-label'
 
 const MAX_AMENITIES = 6
 
@@ -78,9 +79,14 @@ export function ListingCard({ listing, isFavorite, onToggleFavorite, onOpen }: L
               <span className="text-sm font-normal text-muted-foreground"> /month</span>
             )}
           </p>
-          <span className="flex shrink-0 items-center gap-1 pt-1 text-xs text-muted-foreground">
-            <Clock className="size-3.5" aria-hidden="true" />
-            <time>{formatPublished(listing.publishedMinutesAgo)}</time>
+          <span className="flex shrink-0 flex-col items-end gap-0.5 pt-1">
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Clock className="size-3.5" aria-hidden="true" />
+              <time>{formatPublished(listing.publishedMinutesAgo)}</time>
+            </span>
+            {(listing.freshness === 'stale' || listing.freshness === 'inactive') && (
+              <FreshnessLabel status={listing.freshness} />
+            )}
           </span>
         </div>
 
