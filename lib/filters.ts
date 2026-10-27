@@ -20,14 +20,6 @@ export type DealScope = 'all' | DealType
 
 export type SortKey = 'newest' | 'price-asc' | 'price-desc' | 'surface-desc'
 
-export type SavedSearch = {
-  id: string
-  name: string
-  scope: DealScope
-  filters: Filters
-  createdAt: string
-}
-
 export const EMPTY_FILTERS: Filters = {
   city: null,
   neighborhoods: [],

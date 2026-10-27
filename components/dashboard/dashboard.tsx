@@ -18,9 +18,17 @@ import {
   sortListings,
   type DealScope,
   type Filters,
-  type SavedSearch,
   type SortKey,
 } from '@/lib/filters'
+import {
+  restoreDashboardState,
+  sameFilters,
+  summarizeSavedSearch,
+  type SavedSearch,
+} from '@/lib/saved-searches'
+import { ActiveSavedSearchBar } from './active-saved-search-bar'
+import type { SaveSearchInput } from './save-search-form'
+import { ActiveSavedSearchContext, useListingStates, useSavedSearches, type ActiveSavedSearch } from './use-saved-searches'
 import {
   serializeDashboardParams,
   type DashboardUrlState,
@@ -47,23 +55,6 @@ const SORT_OPTIONS: { label: string; value: SortKey }[] = [
   { label: 'Largest surface', value: 'surface-desc' },
 ]
 
-const INITIAL_SAVED: SavedSearch[] = [
-  {
-    id: 's-1',
-    name: 'Tel Aviv 3+ rooms with Mamad',
-    scope: 'rent',
-    filters: { ...EMPTY_FILTERS, city: 'Tel Aviv', minRooms: '3', maxPrice: '10000', amenities: ['mamad'] },
-    createdAt: 'Sep 24, 2026',
-  },
-  {
-    id: 's-2',
-    name: 'Sea view properties for sale',
-    scope: 'sale',
-    filters: { ...EMPTY_FILTERS, amenities: ['seaView'] },
-    createdAt: 'Sep 18, 2026',
-  },
-]
-
 const NO_LISTINGS: Listing[] = []
 
 export function Dashboard({ initialState }: { initialState: DashboardUrlState }) {
@@ -80,10 +71,23 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
   const applied = useDeferredValue(draft)
   const [sort, setSort] = useState<SortKey>(initialState.sort)
   const [favorites, setFavorites] = useState<Set<string>>(() => new Set())
-  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>(INITIAL_SAVED)
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const saved = useSavedSearches()
+  const [openSearchId, setOpenSearchId] = useState<string | null>(null)
 
   const scope: DealScope = tab === 'rent' || tab === 'sale' ? tab : 'all'
+
+  // A saved search stays "open" only while the dashboard still shows exactly its criteria.
+  const openSearch = saved.searches.find((s) => s.id === openSearchId) ?? null
+  const activeSearch = openSearch && tab === openSearch.scope && sameFilters(draft, openSearch.filters) ? openSearch : null
+  const listingStates = useListingStates(activeSearch?.id ?? null)
+  const activeContext = useMemo<ActiveSavedSearch | null>(
+    () =>
+      activeSearch
+        ? { search: activeSearch, stateOf: listingStates.stateOf, setState: (card, state) => void listingStates.setState(card, state) }
+        : null,
+    [activeSearch, listingStates],
+  )
 
   const { yad2: yad2Input, madlan: madlanInput } = buildSourceInputs(draft, scope)
   // Each source keeps its own runs, polling and Supabase refetch; the combined status replaces their toasts.
@@ -145,33 +149,38 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
     void refresh.refreshAll()
   }
 
-  const handleSave = () => {
-    const parts = describeFilters(draft, scope)
-    const name = parts.length ? parts.slice(0, 3).join(' · ') : 'All listings'
-    const search: SavedSearch = {
-      id: `s-${Date.now()}`,
-      name,
-      scope,
-      filters: draft,
-      createdAt: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date()),
-    }
-    setSavedSearches((prev) => [search, ...prev])
+  const describedParts = describeFilters(draft, scope)
+  const suggestedSaveName = describedParts.length ? describedParts.slice(0, 3).join(' · ') : 'All listings'
+
+  const handleSave = async ({ name, scope: saveScope }: SaveSearchInput) => {
+    const created = await saved.create({ name, scope: saveScope, filters: draft, sort })
+    if (!created) return false
     setFiltersOpen(false)
-    toast.success('Search saved', { description: name })
+    toast.success('Search saved', { description: created.name })
+    return true
   }
 
   const handleReset = () => {
     setDraft(EMPTY_FILTERS)
   }
 
-  const runSavedSearch = (search: SavedSearch) => {
-    setDraft(search.filters)
-    setTab(search.scope)
+  const openSavedSearch = (search: SavedSearch) => {
+    const restored = restoreDashboardState(search)
+    setDraft(restored.filters)
+    setTab(restored.tab)
+    setSort(restored.sort)
+    setOpenSearchId(search.id)
+    // Opening counts as checking: the "new" badge resets to listings first seen after now.
+    void saved.markChecked(search.id)
   }
 
-  const deleteSavedSearch = (id: string) => {
-    setSavedSearches((prev) => prev.filter((s) => s.id !== id))
-    toast('Saved search deleted')
+  const deleteSavedSearch = async (id: string) => {
+    const deleted = await saved.remove(id)
+    if (deleted) {
+      if (openSearchId === id) setOpenSearchId(null)
+      toast('Saved search deleted')
+    }
+    return deleted
   }
 
   const panel = (
@@ -179,7 +188,10 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
       filters={draft}
       cities={cities}
       propertyTypes={propertyTypes}
-      onChange={setDraft} onSearch={handleSearch} onSave={handleSave} onReset={handleReset}
+      onChange={setDraft} onSearch={handleSearch} onSave={handleSave}
+      saveScope={scope === 'sale' ? 'sale' : 'rent'}
+      suggestedSaveName={suggestedSaveName}
+      onReset={handleReset}
       onRefreshAll={handleRefreshAll}
       refreshing={refresh.isRefreshing}
       priceStep={scope === 'sale' ? 50_000 : 500} />
@@ -189,7 +201,7 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
     { key: 'all', label: 'All listings', count: counts.all },
     { key: 'rent', label: 'Rent', count: counts.rent },
     { key: 'sale', label: 'Sale', count: counts.sale },
-    { key: 'saved', label: 'Saved searches', count: savedSearches.length },
+    { key: 'saved', label: 'Saved searches', count: saved.searches.length },
     { key: 'favorites', label: 'Favorites', count: favorites.size },
   ]
 
@@ -279,14 +291,28 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
             ) : isLoading ? (
               <ListingsLoading />
             ) : tab === 'saved' ? (
-              <SavedSearches
-                searches={savedSearches}
-                matchCount={(s) => filterListings(listings, s.filters, s.scope).length}
-                onRun={runSavedSearch}
-                onDelete={deleteSavedSearch}
-              />
+              saved.loadError ? (
+                <ListingsError
+                  message={saved.loadError.message}
+                  hint="Saved searches are stored in Supabase. Check that the saved_searches table exists."
+                  onRetry={() => saved.retry()}
+                />
+              ) : saved.isLoading ? (
+                <ListingsLoading />
+              ) : (
+                <SavedSearches
+                  searches={saved.searches}
+                  summaryOf={(s) => summarizeSavedSearch(listings, s)}
+                  onOpen={openSavedSearch}
+                  onUpdate={saved.update}
+                  onDelete={deleteSavedSearch}
+                />
+              )
             ) : (
-              <>
+              <ActiveSavedSearchContext.Provider value={activeContext}>
+                {activeContext && (
+                  <ActiveSavedSearchBar active={activeContext} results={results} onClose={() => setOpenSearchId(null)} />
+                )}
                 <p className="mb-4 text-sm text-muted-foreground" aria-live="polite">
                   <span className="font-medium text-foreground tabular-nums">{results.length}</span>
                   {` ${results.length === 1 ? 'listing' : 'listings'} found`}
@@ -303,7 +329,7 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
                       : 'Try widening your price range or removing some amenities.'
                   }
                 />
-              </>
+              </ActiveSavedSearchContext.Provider>
             )}
           </div>
         </section>

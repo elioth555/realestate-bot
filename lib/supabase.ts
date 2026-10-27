@@ -6,6 +6,7 @@ import { fetchAllPages, type PageResult } from './paginate'
 import type { CoverageRun } from './freshness'
 import { COVERAGE_RUN_COLUMNS, resolveCardFreshness, withFreshness } from './listing-freshness'
 import { mapFacebookItem } from './facebook-mapper'
+import { resolveCardFirstSeen } from './saved-searches'
 import { CANONICAL_CITY, isCanonicalCity } from './geo/canonical-neighborhoods'
 import { resolveNeighborhood } from './geo/resolve-neighborhood'
 import { deriveFeatures } from './matching/features'
@@ -71,6 +72,7 @@ export type PropertyRow = {
   pet_friendly: boolean | null
   description?: string | null
   available_from?: string | null
+  first_seen_at?: string | null
 }
 
 type PhotoRow = {
@@ -271,7 +273,8 @@ export async function fetchListings(): Promise<Listing[]> {
     return runsRes.error ? listing : withFreshness(listing, row, runsRes.data, now)
   })
 
-  return resolveCardFreshness(dedupeAcrossSources(dedupeFacebookListings(sourceListings)), sourceListings)
+  const cards = dedupeAcrossSources(dedupeFacebookListings(sourceListings))
+  return resolveCardFirstSeen(resolveCardFreshness(cards, sourceListings), sourceListings)
 }
 
 async function fetchCoverageRuns(supabase: SupabaseClient) {
@@ -378,6 +381,7 @@ export function rowToListing(storedRow: PropertyRow, photos: string[] = []): Lis
     url: row.source_url ?? '',
     publishedAt: firstValidDate(row.published_at, row.created_at),
     publishedMinutesAgo: minutesSince(row.published_at, row.created_at),
+    firstSeenAt: firstValidDate(row.first_seen_at, row.created_at),
     photos,
     image: photos[0] ?? null,
   }

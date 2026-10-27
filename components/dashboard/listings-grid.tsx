@@ -5,6 +5,7 @@ import { SearchX } from 'lucide-react'
 import type { Listing } from '@/lib/listings'
 import { ListingCard } from './listing-card'
 import { ListingDetailSheet } from './listing-detail-sheet'
+import { useActiveSavedSearch } from './use-saved-searches'
 
 type ListingsGridProps = {
   listings: Listing[]
@@ -16,6 +17,12 @@ type ListingsGridProps = {
 
 export function ListingsGrid({ listings, favorites, onToggleFavorite, emptyTitle, emptyDescription }: ListingsGridProps) {
   const [selected, setSelected] = useState<Listing | null>(null)
+  const activeSearch = useActiveSavedSearch()
+
+  const open = (listing: Listing) => {
+    setSelected(listing)
+    if (activeSearch && activeSearch.stateOf(listing) === 'unseen') activeSearch.setState(listing, 'viewed')
+  }
 
   if (listings.length === 0) {
     return (
@@ -38,7 +45,7 @@ export function ListingsGrid({ listings, favorites, onToggleFavorite, emptyTitle
             listing={listing}
             isFavorite={favorites.has(listing.id)}
             onToggleFavorite={onToggleFavorite}
-            onOpen={setSelected}
+            onOpen={open}
           />
         ))}
       </div>

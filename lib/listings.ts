@@ -88,6 +88,8 @@ export type Listing = {
   /** ISO timestamp of publication (falls back to import time); null when neither is known. */
   publishedAt: string | null
   publishedMinutesAgo: number
+  /** When this app first stored the listing (first_seen_at, else created_at); earliest member for merged cards. */
+  firstSeenAt?: string | null
   photos: string[]
   image: string | null
   /** Other Facebook post URLs for the same apartment, grouped at read time (lib/facebook-dedupe). */

@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { BookmarkPlus, RefreshCw, RotateCcw, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -7,9 +8,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { AMENITY_KEYS, AMENITY_LABELS, type AmenityKey } from '@/lib/listings'
+import { AMENITY_KEYS, AMENITY_LABELS, type AmenityKey, type DealType } from '@/lib/listings'
 import { ROOM_OPTIONS, type Filters } from '@/lib/filters'
 import { AMENITY_ICONS } from './amenity-icons'
+import { SaveSearchForm, type SaveSearchInput } from './save-search-form'
 
 type FilterPanelProps = {
   filters: Filters
@@ -17,7 +19,10 @@ type FilterPanelProps = {
   propertyTypes: string[]
   onChange: (filters: Filters) => void
   onSearch: () => void
-  onSave: () => void
+  onSave: (input: SaveSearchInput) => Promise<boolean>
+  /** Rent/Sale preselected in the save form (the current tab, or Rent from "All"). */
+  saveScope: DealType
+  suggestedSaveName: string
   onReset: () => void
   /** Starts Yad2, Madlan and Facebook together. */
   onRefreshAll: () => void
@@ -193,11 +198,14 @@ export function FilterPanel({
   onChange,
   onSearch,
   onSave,
+  saveScope,
+  suggestedSaveName,
   onReset,
   onRefreshAll,
   refreshing = false,
   priceStep = 500,
 }: FilterPanelProps) {
+  const [savingOpen, setSavingOpen] = useState(false)
   const set = <K extends keyof Filters>(key: K, value: Filters[K]) => onChange({ ...filters, [key]: value })
 
   const neighborhoods = filters.city ? (cities[filters.city] ?? []) : []
@@ -343,7 +351,21 @@ export function FilterPanel({
       </fieldset>
 
       <div className="sticky bottom-0 -mx-5 -mb-5 grid grid-cols-2 gap-2 border-t bg-card p-5">
-        <Button type="button" variant="outline" onClick={onSave} className="h-10 gap-1.5">
+        {savingOpen && (
+          <SaveSearchForm
+            defaultScope={saveScope}
+            suggestedName={suggestedSaveName}
+            onSave={onSave}
+            onCancel={() => setSavingOpen(false)}
+          />
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          aria-expanded={savingOpen}
+          onClick={() => setSavingOpen((open) => !open)}
+          className="h-10 gap-1.5"
+        >
           <BookmarkPlus className="size-4" aria-hidden="true" />
           Save search
         </Button>

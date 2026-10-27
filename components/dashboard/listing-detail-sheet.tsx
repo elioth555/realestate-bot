@@ -17,6 +17,7 @@ import {
   phoneHref,
 } from '@/lib/listing-display'
 import { AMENITY_ICONS } from './amenity-icons'
+import { ClientListingState } from './client-listing-state'
 import { ListingPhoto } from './listing-photo'
 import { SourceBadges } from './source-badge'
 
@@ -87,6 +88,8 @@ function ListingDetail({ listing }: { listing: Listing }) {
             )}
           </SheetDescription>
         </SheetHeader>
+
+        <ClientListingState listing={listing} />
 
         <dl className="grid grid-cols-3 divide-x rounded-lg border bg-background text-center">
           <Fact icon={BedDouble} label="Rooms" value={displayRooms(listing)} />
