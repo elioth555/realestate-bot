@@ -434,3 +434,37 @@ test('recordRefreshRun ignores a webhook retry for the same run', async () => {
   assert.equal(again.recorded, false)
   assert.equal(again.duplicate, true)
 })
+
+// Production run 3i8PDa9heXxl5aguJ (27 Oct): the table had no GRANTs, so PostgREST answered 42501.
+test('recordRefreshRun reports a permission-denied insert without throwing', async () => {
+  const scope = yad2RunScope({
+    start_urls: [{ url: 'https://www.yad2.co.il/realestate/rent?topArea=2&area=1&city=5000&neighborhood=1483' }],
+  })!
+  const row = buildRefreshRunRow({
+    source: 'yad2',
+    meta: { runId: '3i8PDa9heXxl5aguJ', startedAt: null, finishedAt: '2026-10-27T12:45:11.999Z' },
+    scope,
+    seenAt: '2026-10-27T12:45:11.999Z',
+    itemCount: 29,
+    itemsImported: 28,
+    itemsFailed: 1,
+    truncated: yad2RunTruncated(29),
+  })
+  const denied = {
+    from: () => ({
+      upsert: () => ({
+        select: async () => ({
+          data: null,
+          error: { code: '42501', message: 'permission denied for table source_refresh_runs' },
+        }),
+      }),
+    }),
+  }
+  const result = await recordRefreshRun(denied as never, row)
+  assert.deepEqual(result, {
+    recorded: false,
+    status: 'partial',
+    error: 'permission denied for table source_refresh_runs',
+  })
+  assert.equal(row.truncated, false)
+})
