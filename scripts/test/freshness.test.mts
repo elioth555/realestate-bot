@@ -204,6 +204,43 @@ test('buildRefreshRunRow: succeeded with a clean scope; scope problems make it p
   assert.equal(buildRefreshRunRow({ ...base, scope: { ...scope, problems: ['x'] } }).status, 'partial')
 })
 
+test('Madlan production run FhwteNF48W5JO99uG (exact saved INPUT) records as succeeded', () => {
+  const input = {
+    city: 'Tel Aviv',
+    dealType: 'rent',
+    maxItems: 50,
+    neighbourhood: 'נווה צדק',
+    excludeAgents: false,
+    requireParking: false,
+    requireElevator: false,
+    requireBalcony: false,
+    requireSecureRoom: false,
+    enrichInsights: false,
+    includeContactMetadata: false,
+  }
+  const scope = madlanRunScope(input)!
+  assert.deepEqual(scope.problems, [])
+  assert.equal(scope.transaction_type, 'rent')
+  assert.equal(scope.scope_kind, 'neighborhoods')
+  assert.deepEqual(scope.neighborhoods, ['Neve Tzedek'])
+  assert.equal(scope.max_items, 50)
+
+  const truncated = madlanRunTruncated(31, scope.max_items)
+  assert.equal(truncated, false)
+  const row = buildRefreshRunRow({
+    source: 'madlan',
+    meta: { runId: 'FhwteNF48W5JO99uG', startedAt: '2026-10-27T12:59:59.123Z', finishedAt: '2026-10-27T13:00:03.951Z' },
+    scope,
+    seenAt: '2026-10-27T13:00:03.951Z',
+    itemCount: 31,
+    itemsImported: 31,
+    itemsFailed: 0,
+    truncated,
+  })
+  assert.equal(row.status, 'succeeded')
+  assert.equal(row.truncated, false)
+})
+
 // ---------- coverage completeness vs item import quality ----------
 
 const neveTzedekRent = () => yad2RunScope(yad2Input(`https://www.yad2.co.il/realestate/rent?${TLV}&neighborhood=848`))!
