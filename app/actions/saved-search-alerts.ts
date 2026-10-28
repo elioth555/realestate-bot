@@ -12,14 +12,13 @@ import {
   runAlertSend,
   type AlertEmail,
   type AlertRow,
-  type SendResult,
 } from '@/lib/saved-search-alerts'
+import { sendWithResend } from '@/lib/alert-email-sender'
 
 type Failure = { ok: false; message: string; setupRequired?: boolean; notConfigured?: boolean }
 export type AlertActionResult<T> = { ok: true; data: T } | Failure
 
 const SETUP_MESSAGE = 'Email alerts need the saved_search_alerts table. Run scripts/sql/saved-search-alerts.sql in the Supabase SQL editor.'
-const EMAIL_NOT_CONFIGURED = 'Email sending is not configured. Add RESEND_API_KEY and ALERT_EMAIL_FROM to the project variables.'
 
 function failure(error: { message: string; code?: string } | null, fallback: string): Failure {
   if (error && ['42P01', 'PGRST205', '42501'].includes(error.code ?? '')) return { ok: false, message: SETUP_MESSAGE, setupRequired: true }
@@ -80,23 +79,6 @@ export async function previewSavedSearchAlert(searchId: string): Promise<AlertAc
   const eligible = alertEligibility(ctx.data.search, pending)
   if (!eligible.ok) return { ok: false, message: INELIGIBLE_MESSAGES[eligible.reason] }
   return { ok: true, data: buildAlertEmail(ctx.data.search, pending) }
-}
-
-async function sendWithResend(email: AlertEmail, idempotencyKey: string): Promise<SendResult> {
-  const apiKey = process.env.RESEND_API_KEY
-  const from = process.env.ALERT_EMAIL_FROM
-  if (!apiKey || !from) return { ok: false, message: EMAIL_NOT_CONFIGURED, notConfigured: true }
-  const replyTo = process.env.ALERT_EMAIL_REPLY_TO
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({ from, to: [email.to], subject: email.subject, html: email.html, text: email.text, ...(replyTo ? { reply_to: replyTo } : {}) }),
-    signal: AbortSignal.timeout(15000),
-  })
-  if (response.ok) return { ok: true }
-  const detail = await response.text().catch(() => '')
-  console.error('[saved-search-alerts] email provider rejected the send:', response.status, detail.slice(0, 300))
-  return { ok: false, message: `The email provider rejected the send (HTTP ${response.status}). Nothing was marked as sent.` }
 }
 
 export async function sendSavedSearchAlert(searchId: string): Promise<AlertActionResult<{ itemCount: number; to: string }>> {

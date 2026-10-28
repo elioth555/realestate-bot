@@ -204,3 +204,84 @@ export async function runAlertSend(deps: {
   if (!recorded.ok) return { status: 'sent-not-recorded', email, message: recorded.message }
   return { status: 'sent', email, recordedCards: pending.length }
 }
+
+export const DAILY_ALERT_TIMEZONE = 'Asia/Jerusalem'
+export const DAILY_ALERT_HOUR = 8
+
+/** Hour of day (0-23) in Israel, DST-aware. Vercel cron runs in UTC, so the endpoint gates on this. */
+export function israelHour(now: Date): number {
+  const hour = new Intl.DateTimeFormat('en-GB', { timeZone: DAILY_ALERT_TIMEZONE, hour: '2-digit', hourCycle: 'h23' }).format(now)
+  return Number(hour)
+}
+
+export const isDailyAlertWindow = (now: Date) => israelHour(now) === DAILY_ALERT_HOUR
+
+export type DailyStatus = 'sent' | 'would-send' | 'skipped-no-email' | 'skipped-no-new' | 'send-failed' | 'sent-not-recorded' | 'error'
+/** No client name, email or listing content: safe to log and return from the cron endpoint. */
+export type DailyResult = { searchId: string; status: DailyStatus; itemCount: number; message?: string }
+
+/**
+ * One email per saved search, sequentially, each isolated so one failure cannot block the rest.
+ * Reuses runAlertSend, so the send-then-record ordering and last_checked_at rule are identical to the manual flow.
+ */
+export async function runDailyAlerts(deps: {
+  searches: SavedSearch[]
+  cards: Listing[]
+  alertedIdsBySearch: ReadonlyMap<string, ReadonlySet<string>>
+  send: (email: AlertEmail, idempotencyKey: string) => Promise<SendResult>
+  record: (rows: AlertRow[]) => Promise<{ ok: true } | { ok: false; message: string }>
+  dryRun?: boolean
+  now?: () => Date
+  newBatchId?: () => string
+}): Promise<DailyResult[]> {
+  const results: DailyResult[] = []
+  const safeRecord = async (rows: AlertRow[]) => {
+    try {
+      return await deps.record(rows)
+    } catch (error) {
+      return { ok: false as const, message: error instanceof Error ? error.message : 'Recording failed.' }
+    }
+  }
+
+  for (const search of deps.searches) {
+    const alertedIds = deps.alertedIdsBySearch.get(search.id) ?? new Set<string>()
+    try {
+      if (deps.dryRun) {
+        const pending = pendingAlertCards(deps.cards, search, alertedIds)
+        const eligible = alertEligibility(search, pending)
+        results.push(
+          eligible.ok
+            ? { searchId: search.id, status: 'would-send', itemCount: pending.length }
+            : { searchId: search.id, status: eligible.reason === 'no-email' ? 'skipped-no-email' : 'skipped-no-new', itemCount: 0 },
+        )
+        continue
+      }
+      const outcome = await runAlertSend({
+        search,
+        cards: deps.cards,
+        alertedIds,
+        send: deps.send,
+        record: safeRecord,
+        now: deps.now,
+        newBatchId: deps.newBatchId,
+      })
+      switch (outcome.status) {
+        case 'sent':
+          results.push({ searchId: search.id, status: 'sent', itemCount: outcome.email.itemCount })
+          break
+        case 'ineligible':
+          results.push({ searchId: search.id, status: outcome.reason === 'no-email' ? 'skipped-no-email' : 'skipped-no-new', itemCount: 0 })
+          break
+        case 'send-failed':
+          results.push({ searchId: search.id, status: 'send-failed', itemCount: 0, message: outcome.message })
+          break
+        case 'sent-not-recorded':
+          results.push({ searchId: search.id, status: 'sent-not-recorded', itemCount: outcome.email.itemCount, message: outcome.message })
+          break
+      }
+    } catch (error) {
+      results.push({ searchId: search.id, status: 'error', itemCount: 0, message: error instanceof Error ? error.message : 'Unexpected error.' })
+    }
+  }
+  return results
+}
