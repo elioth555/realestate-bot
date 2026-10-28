@@ -19,6 +19,7 @@ import {
   sameFilters,
   sanitizeFilters,
   summarizeSavedSearch,
+  summarizeSavedSearches,
   type SavedSearch,
   type SavedSearchRow,
 } from '../../lib/saved-searches.ts'
@@ -197,6 +198,59 @@ test('cross-source merged listing counts once and is not new when an old member 
   assert.equal(merged.length, 1)
   assert.equal(merged[0].firstSeenAt, '2026-10-01T00:00:00.000Z')
   assert.deepEqual(summarizeSavedSearch(merged, search({ city: 'Tel Aviv' })), { matches: 1, newMatches: 0 })
+})
+
+test('listing first seen before last_checked_at is not new; after it is new', () => {
+  const s = search({ city: 'Tel Aviv' })
+  const before = listing('yad2', { firstSeenAt: '2026-10-09T23:59:59.000Z' })
+  const after = listing('yad2', { firstSeenAt: '2026-10-10T00:00:01.000Z' })
+  assert.deepEqual(summarizeSavedSearch([before], s), { matches: 1, newMatches: 0 })
+  assert.deepEqual(summarizeSavedSearch([after], s), { matches: 1, newMatches: 1 })
+})
+
+test('same card appearing twice in the input still counts once', () => {
+  const card = listing('yad2', { firstSeenAt: '2026-10-15T00:00:00.000Z' })
+  assert.deepEqual(summarizeSavedSearch([card, card], search({ city: 'Tel Aviv' })), { matches: 1, newMatches: 1 })
+})
+
+test('one listing matching two searches counts once in each and twice in the global total', () => {
+  const card = listing('yad2', { firstSeenAt: '2026-10-15T00:00:00.000Z' })
+  const a = search({ city: 'Tel Aviv' }, { id: '00000000-0000-4000-8000-00000000000a' })
+  const b = search({ minRooms: '3' }, { id: '00000000-0000-4000-8000-00000000000b' })
+  const { byId, totalNew } = summarizeSavedSearches([card], [a, b])
+  assert.deepEqual(byId.get(a.id), { matches: 1, newMatches: 1 })
+  assert.deepEqual(byId.get(b.id), { matches: 1, newMatches: 1 })
+  assert.equal(totalNew, 2)
+})
+
+test('refresh recalculates counts from new cards without touching last_checked_at', () => {
+  const s = search({ city: 'Tel Aviv' })
+  const frozen = structuredClone(s)
+  const old = listing('yad2', { firstSeenAt: '2026-10-05T00:00:00.000Z' })
+  assert.equal(summarizeSavedSearches([old], [s]).totalNew, 0)
+  const arrived = listing('madlan', { firstSeenAt: '2026-10-20T00:00:00.000Z' })
+  const afterRefresh = summarizeSavedSearches([old, arrived], [s])
+  assert.deepEqual(afterRefresh.byId.get(s.id), { matches: 2, newMatches: 1 })
+  assert.deepEqual(s, frozen, 'summarizing never mutates the saved search')
+})
+
+test('opening (checking) the search resets the new count to zero', () => {
+  const s = search({ city: 'Tel Aviv' })
+  const arrived = listing('madlan', { firstSeenAt: '2026-10-20T00:00:00.000Z' })
+  assert.equal(summarizeSavedSearch([arrived], s).newMatches, 1)
+  const opened = { ...s, lastCheckedAt: '2026-10-21T00:00:00.000Z' }
+  assert.deepEqual(summarizeSavedSearch([arrived], opened), { matches: 1, newMatches: 0 })
+})
+
+test('Sent state survives a refresh and does not change the new count', () => {
+  const s = search({ city: 'Tel Aviv' })
+  const sentCard = listing('yad2', { firstSeenAt: '2026-10-15T00:00:00.000Z' })
+  const states = [{ listingId: sentCard.id, state: 'sent' as const, updatedAt: '2026-10-16T00:00:00.000Z' }]
+  const before = summarizeSavedSearch([sentCard], s)
+  const refreshedCards = [{ ...sentCard }, listing('madlan', { firstSeenAt: '2026-10-18T00:00:00.000Z' })]
+  assert.equal(cardListingState(refreshedCards[0], states), 'sent')
+  assert.deepEqual(before, { matches: 1, newMatches: 1 }, 'sent listing still counts as new')
+  assert.deepEqual(summarizeSavedSearch(refreshedCards, s), { matches: 2, newMatches: 2 })
 })
 
 test('per-search state follows the merged card whichever member it was stored on', () => {

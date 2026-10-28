@@ -162,9 +162,27 @@ export function isNewSince(card: Pick<Listing, 'firstSeenAt'>, lastCheckedAt: st
   return seen !== null && checked !== null && seen > checked
 }
 
-export function summarizeSavedSearch(cards: Listing[], search: SavedSearch) {
-  const matches = savedSearchMatches(cards, search)
-  return { matches: matches.length, newMatches: matches.filter((c) => isNewSince(c, search.lastCheckedAt)).length }
+export type SavedSearchSummary = { matches: number; newMatches: number }
+
+/**
+ * Counts are over merged dashboard cards, keyed by card id, so a cross-source duplicate counts once.
+ * Listing state (viewed/sent/rejected) is deliberately not an input: newness is first-seen vs last-checked only.
+ */
+export function summarizeSavedSearch(cards: Listing[], search: SavedSearch): SavedSearchSummary {
+  const unique = [...new Map(savedSearchMatches(cards, search).map((c) => [c.id, c])).values()]
+  return { matches: unique.length, newMatches: unique.filter((c) => isNewSince(c, search.lastCheckedAt)).length }
+}
+
+/** Recomputed from the current cards on every listings refetch; never writes last_checked_at. */
+export function summarizeSavedSearches(cards: Listing[], searches: SavedSearch[]) {
+  const byId = new Map<string, SavedSearchSummary>()
+  let totalNew = 0
+  for (const search of searches) {
+    const summary = summarizeSavedSearch(cards, search)
+    byId.set(search.id, summary)
+    totalNew += summary.newMatches
+  }
+  return { byId, totalNew }
 }
 
 /** Dashboard state that reproduces the saved search: its filters, its Rent/Sale tab and its sort. */

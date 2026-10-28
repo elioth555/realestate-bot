@@ -6,9 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { describeFilters } from '@/lib/filters'
-import { LIMITS, type ClientFields, type SavedSearch } from '@/lib/saved-searches'
-
-type Summary = { matches: number; newMatches: number }
+import { LIMITS, type ClientFields, type SavedSearch, type SavedSearchSummary as Summary } from '@/lib/saved-searches'
 
 type SavedSearchesProps = {
   searches: SavedSearch[]
@@ -88,14 +86,17 @@ function SavedSearchRow({
               <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
                 {search.scope === 'rent' ? 'Rent' : 'Sale'}
               </span>
-              <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground tabular-nums">
-                {`${summary.matches} ${summary.matches === 1 ? 'match' : 'matches'}`}
+              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                <span className="font-medium text-foreground">{`${summary.matches} ${summary.matches === 1 ? 'match' : 'matches'}`}</span>
+                {' · '}
+                {summary.newMatches > 0 ? (
+                  <span className="rounded-full bg-primary px-1.5 py-0.5 font-semibold text-primary-foreground">
+                    {`${summary.newMatches} new`}
+                  </span>
+                ) : (
+                  'No new listings'
+                )}
               </span>
-              {summary.newMatches > 0 && (
-                <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground tabular-nums">
-                  {`${summary.newMatches} new`}
-                </span>
-              )}
             </div>
           )}
           <ul className="flex flex-wrap gap-1.5" aria-label="Search criteria">

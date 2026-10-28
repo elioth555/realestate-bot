@@ -23,7 +23,7 @@ import {
 import {
   restoreDashboardState,
   sameFilters,
-  summarizeSavedSearch,
+  summarizeSavedSearches,
   type SavedSearch,
 } from '@/lib/saved-searches'
 import { ActiveSavedSearchBar } from './active-saved-search-bar'
@@ -128,6 +128,9 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
     [listings, applied],
   )
 
+  // Each source's Supabase refetch replaces `listings`, so counts update as soon as any source finishes.
+  const savedSummaries = useMemo(() => summarizeSavedSearches(listings, saved.searches), [listings, saved.searches])
+
   const activeFilterCount = countActiveFilters(applied)
 
   const toggleFavorite = (id: string) => {
@@ -197,11 +200,17 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
       priceStep={scope === 'sale' ? 50_000 : 500} />
   )
 
-  const tabs: { key: TabKey; label: string; count: number }[] = [
+  const tabs: { key: TabKey; label: string; count: number | null; srCount?: string; highlight?: boolean }[] = [
     { key: 'all', label: 'All listings', count: counts.all },
     { key: 'rent', label: 'Rent', count: counts.rent },
     { key: 'sale', label: 'Sale', count: counts.sale },
-    { key: 'saved', label: 'Saved searches', count: saved.searches.length },
+    {
+      key: 'saved',
+      label: 'Saved searches',
+      count: savedSummaries.totalNew > 0 ? savedSummaries.totalNew : null,
+      srCount: 'new matches',
+      highlight: true,
+    },
     { key: 'favorites', label: 'Favorites', count: favorites.size },
   ]
 
@@ -231,9 +240,18 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
                   {tabs.map((t) => (
                     <TabsTrigger key={t.key} value={t.key} className="gap-1.5 px-3">
                       {t.label}
-                      <span className="rounded-full bg-background/80 px-1.5 text-[11px] font-medium text-muted-foreground tabular-nums in-data-active:bg-primary in-data-active:text-primary-foreground">
-                        {t.count}
-                      </span>
+                      {t.count !== null && (
+                        <span
+                          className={
+                            t.highlight
+                              ? 'rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground tabular-nums'
+                              : 'rounded-full bg-background/80 px-1.5 text-[11px] font-medium text-muted-foreground tabular-nums in-data-active:bg-primary in-data-active:text-primary-foreground'
+                          }
+                        >
+                          {t.count}
+                          {t.srCount && <span className="sr-only">{` ${t.srCount}`}</span>}
+                        </span>
+                      )}
                     </TabsTrigger>
                   ))}
                 </TabsList>
@@ -302,7 +320,7 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
               ) : (
                 <SavedSearches
                   searches={saved.searches}
-                  summaryOf={(s) => summarizeSavedSearch(listings, s)}
+                  summaryOf={(s) => savedSummaries.byId.get(s.id) ?? { matches: 0, newMatches: 0 }}
                   onOpen={openSavedSearch}
                   onUpdate={saved.update}
                   onDelete={deleteSavedSearch}

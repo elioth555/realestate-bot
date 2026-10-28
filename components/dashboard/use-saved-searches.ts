@@ -60,8 +60,11 @@ export function useSavedSearches() {
       return true
     },
     async markChecked(id: string) {
+      const current = searches.find((s) => s.id === id)
+      if (current) await replace({ ...current, lastCheckedAt: new Date().toISOString() })
       const result = await markSavedSearchChecked(id)
-      if (!reportFailure(result)) await replace(result.data)
+      if (reportFailure(result)) await mutate()
+      else await replace(result.data)
     },
     async remove(id: string) {
       const result = await deleteSavedSearch(id)
