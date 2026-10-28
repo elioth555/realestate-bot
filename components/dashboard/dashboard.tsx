@@ -28,7 +28,8 @@ import {
 } from '@/lib/saved-searches'
 import { ActiveSavedSearchBar } from './active-saved-search-bar'
 import type { SaveSearchInput } from './save-search-form'
-import { ActiveSavedSearchContext, useListingStates, useSavedSearches, type ActiveSavedSearch } from './use-saved-searches'
+import { ActiveSavedSearchContext, useListingStates, useSavedSearches, useSentAlerts, type ActiveSavedSearch } from './use-saved-searches'
+import { pendingAlertCards } from '@/lib/saved-search-alerts'
 import {
   serializeDashboardParams,
   type DashboardUrlState,
@@ -73,6 +74,7 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
   const [favorites, setFavorites] = useState<Set<string>>(() => new Set())
   const [filtersOpen, setFiltersOpen] = useState(false)
   const saved = useSavedSearches()
+  const sentAlerts = useSentAlerts()
   const [openSearchId, setOpenSearchId] = useState<string | null>(null)
 
   const scope: DealScope = tab === 'rent' || tab === 'sale' ? tab : 'all'
@@ -324,6 +326,10 @@ export function Dashboard({ initialState }: { initialState: DashboardUrlState })
                   onOpen={openSavedSearch}
                   onUpdate={saved.update}
                   onDelete={deleteSavedSearch}
+                  pendingAlertsOf={(s) => pendingAlertCards(listings, s, sentAlerts.alertedIdsOf(s.id)).length}
+                  refreshing={refresh.isRefreshing}
+                  onPreviewAlert={sentAlerts.preview}
+                  onSendAlert={sentAlerts.send}
                 />
               )
             ) : (

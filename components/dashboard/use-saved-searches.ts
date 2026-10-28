@@ -13,6 +13,7 @@ import {
   updateSavedSearch,
   type ActionResult,
 } from '@/app/actions/saved-searches'
+import { listAlertedListingIds, previewSavedSearchAlert, sendSavedSearchAlert } from '@/app/actions/saved-search-alerts'
 import type { Filters, SortKey } from '@/lib/filters'
 import type { DealType, Listing } from '@/lib/listings'
 import {
@@ -101,6 +102,25 @@ export function useListingStates(searchId: string | null) {
   }
 
   return { states, stateOf: (card: Listing) => cardListingState(card, states), setState }
+}
+
+const NO_ALERTED: Record<string, string[]> = {}
+
+/** Source-listing ids already emailed, per saved search. Missing table means nothing has been alerted yet. */
+export function useSentAlerts() {
+  const { data, mutate } = useSWR('saved-search-alerts', () => listAlertedListingIds(), { revalidateOnFocus: false })
+  const bySearch = data?.ok ? data.data : NO_ALERTED
+  return {
+    alertedIdsOf: (searchId: string) => new Set(bySearch[searchId] ?? []),
+    refresh: () => mutate(),
+    preview: (searchId: string) => previewSavedSearchAlert(searchId),
+    async send(searchId: string) {
+      const result = await sendSavedSearchAlert(searchId)
+      // Refetch even on failure: a "sent but not recorded" outcome must not leave a stale count.
+      await mutate()
+      return result
+    },
+  }
 }
 
 export type ActiveSavedSearch = {

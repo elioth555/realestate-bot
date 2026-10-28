@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { describeFilters } from '@/lib/filters'
+import { AlertEmailSheet } from './alert-email-sheet'
 import { LIMITS, type ClientFields, type SavedSearch, type SavedSearchSummary as Summary } from '@/lib/saved-searches'
 
 type SavedSearchesProps = {
@@ -14,11 +15,18 @@ type SavedSearchesProps = {
   onOpen: (search: SavedSearch) => void
   onUpdate: (id: string, fields: ClientFields) => Promise<boolean>
   onDelete: (id: string) => Promise<boolean>
+  /** New matches not yet emailed for this search. */
+  pendingAlertsOf: (search: SavedSearch) => number
+  refreshing: boolean
+  onPreviewAlert: AlertEmailSheetProps['onPreview']
+  onSendAlert: AlertEmailSheetProps['onSend']
 }
+
+type AlertEmailSheetProps = Parameters<typeof AlertEmailSheet>[0]
 
 const dateFormat = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
-export function SavedSearches({ searches, summaryOf, onOpen, onUpdate, onDelete }: SavedSearchesProps) {
+export function SavedSearches({ searches, summaryOf, ...rowProps }: SavedSearchesProps) {
   if (searches.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-xl border border-dashed bg-card px-6 py-16 text-center">
@@ -40,9 +48,7 @@ export function SavedSearches({ searches, summaryOf, onOpen, onUpdate, onDelete 
           key={search.id}
           search={search}
           summary={summaryOf(search)}
-          onOpen={onOpen}
-          onUpdate={onUpdate}
-          onDelete={onDelete}
+          {...rowProps}
         />
       ))}
     </ul>
@@ -57,8 +63,14 @@ function SavedSearchRow({
   onOpen,
   onUpdate,
   onDelete,
+  pendingAlertsOf,
+  refreshing,
+  onPreviewAlert,
+  onSendAlert,
 }: { search: SavedSearch; summary: Summary } & Omit<SavedSearchesProps, 'searches' | 'summaryOf'>) {
   const [mode, setMode] = useState<Mode>('view')
+  const pendingAlerts = pendingAlertsOf(search)
+  const canAlert = Boolean(search.clientEmail?.trim()) && pendingAlerts > 0
   const [busy, setBusy] = useState(false)
   const chips = describeFilters(search.filters, search.scope)
 
@@ -110,6 +122,20 @@ function SavedSearchRow({
             {search.clientName ? `${search.clientName} · ` : ''}
             {`Saved ${dateFormat.format(new Date(search.createdAt))} · checked ${dateFormat.format(new Date(search.lastCheckedAt))}`}
           </p>
+          {canAlert && (
+            <div className="flex flex-wrap items-center gap-2">
+              <AlertEmailSheet
+                search={search}
+                pendingCount={pendingAlerts}
+                refreshing={refreshing}
+                onPreview={onPreviewAlert}
+                onSend={onSendAlert}
+              />
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {`${pendingAlerts} new ${pendingAlerts === 1 ? 'listing' : 'listings'} not yet emailed to ${search.clientEmail}`}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2">
