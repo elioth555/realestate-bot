@@ -274,6 +274,27 @@ export async function getMadlanRunStatus(runId: string): Promise<MadlanRunStatus
   }
 }
 
+export type MadlanInputRunsResult =
+  | { ok: true; runs: MadlanStartedRun[]; failedRuns: { actorInput: MadlanActorInput; error: string; limitReached: boolean }[] }
+  | { ok: false; error: string }
+
+/**
+ * Starts one run per already-built actor input (from buildMadlanActorInputs). Used by the scheduled refresh,
+ * which deduplicates inputs across saved searches before launching.
+ */
+export async function startMadlanActorInputs(inputs: readonly MadlanActorInput[]): Promise<MadlanInputRunsResult> {
+  const config = readApifyConfig()
+  if (!config.ok) return { ok: false, error: config.error }
+  const runs: MadlanStartedRun[] = []
+  const failedRuns: { actorInput: MadlanActorInput; error: string; limitReached: boolean }[] = []
+  for (const actorInput of inputs) {
+    const result = await launchRun(config, actorInput)
+    if (result.ok) runs.push(result.run)
+    else failedRuns.push({ actorInput, error: result.error, limitReached: result.limitReached })
+  }
+  return { ok: true, runs, failedRuns }
+}
+
 /** Starts one Madlan actor run per actor input. Results arrive via /api/apify-madlan-webhook. */
 export async function startMadlanRuns(criteria: MadlanCriteria): Promise<MadlanStartResult> {
   const config = readApifyConfig()

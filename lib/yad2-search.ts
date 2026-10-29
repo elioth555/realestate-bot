@@ -273,6 +273,36 @@ export async function startYad2Run(criteria: SearchCriteria): Promise<StartRunRe
   return { ok: true, ...runs[0], runs, failedRuns }
 }
 
+export type Yad2UrlRunsResult =
+  | { ok: true; runs: StartedRun[]; failedRuns: { searchUrl: string; error: string; limitReached: boolean }[] }
+  | { ok: false; error: string }
+
+/**
+ * Starts one run per already-built search URL (from buildSearchUrls). Used by the scheduled refresh, which
+ * deduplicates URLs across saved searches before launching. Sequential, like startYad2Run.
+ */
+export async function startYad2RunsForUrls(urls: readonly string[]): Promise<Yad2UrlRunsResult> {
+  const config = readApifyConfig()
+  if (!config.ok) return { ok: false, error: config.error }
+  const runs: StartedRun[] = []
+  const failedRuns: { searchUrl: string; error: string; limitReached: boolean }[] = []
+  for (const searchUrl of urls) {
+    if (!yad2TransactionTypeFromUrl(searchUrl)) {
+      failedRuns.push({ searchUrl, error: 'Not a Yad2 rent/sale search URL.', limitReached: false })
+      continue
+    }
+    const result = await launchRun(config, searchUrl)
+    if (result.ok) runs.push(result.run)
+    else
+      failedRuns.push({
+        searchUrl,
+        error: [result.failure.error, ...(result.failure.details ?? [])].join(' '),
+        limitReached: result.failure.limitReached === true,
+      })
+  }
+  return { ok: true, runs, failedRuns }
+}
+
 // Apify rejects new runs with 402/429 or these error types when the account's concurrency/memory limit is reached.
 const LIMIT_ERROR_PATTERN = /limit|concurren|memory|quota|exceeded/i
 
